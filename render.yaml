@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: shadow-chat-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install --requirement requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SECRET_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: shadowchat
+      - key: JWT_ISSUER
+        value: shadow-chat
+      - key: JWT_AUDIENCE
+        value: shadow-chat-client
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: BREVO_SENDER_NAME
+        value: Shadow Chat
