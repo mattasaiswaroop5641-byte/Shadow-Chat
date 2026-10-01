@@ -89,7 +89,7 @@ app.include_router(messages_router)
 app.include_router(websocket_router)
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health(
     database: AsyncIOMotorDatabase = Depends(get_database),
 ) -> JSONResponse:
@@ -106,11 +106,12 @@ async def health(
         )
 
 
-@app.get("/health/liveness")
+@app.api_route("/health/liveness", methods=["GET", "HEAD"])
 def liveness() -> dict[str, str]:
     return {"status": "alive", "service": "shadow-chat"}
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def index() -> dict[str, str]:
     return {"message": "Shadow Chat backend is running."}
+
