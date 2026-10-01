@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import {
   calculateSafetyNumber,
   decryptMessage,
@@ -14,11 +14,13 @@ import {
   createConversation,
   fetchHealth,
   getUserPublicKey,
+  getUsersPresence,
   listConversations,
   listMembers,
   listMessages,
   login,
   logout,
+  markMessagesRead,
   openConversationSocket,
   register,
   resendVerification,
@@ -29,7 +31,15 @@ import {
   uploadPublicKey,
   verifyEmail,
 } from './lib/api'
-import type { Conversation, ConversationMember, Message, NavItem, ServerItem, User, UserSummary } from './types'
+import type {
+  Conversation,
+  ConversationMember,
+  Message,
+  NavItem,
+  ServerItem,
+  User,
+  UserSummary,
+} from './types'
 
 const navItems: NavItem[] = [
   { id: 'messages', label: 'Messages', badge: '3', active: true },
@@ -239,6 +249,18 @@ export default function App() {
   const [safetyModalOpen, setSafetyModalOpen] = useState(false)
   const [decryptedCache, setDecryptedCache] = useState<Record<string, string>>({})
 
+  // Real-Time UX States: Presence, Typing, and Read Receipts
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set())
+  const [typingUsers, setTypingUsers] = useState<Record<string, { username: string; expiresAt: number }>>({})
+  const socketControlRef = useRef<{
+    subscribe: (id: string) => void
+    sendTyping: (id: string, isTyping: boolean) => void
+    sendRead: (id: string) => void
+    close: () => void
+  } | null>(null)
+  const typingTimeoutRef = useRef<number | null>(null)
+  const isTypingRef = useRef(false)
+
   const selectedConversation = conversations.find((c) => c.id === selectedConversationId) || null
 
   useEffect(() => {
@@ -432,11 +454,14 @@ export default function App() {
   }, [user, selectedConversationId])
 
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      socketControlRef.current?.close()
+      socketControlRef.current = null
+      return
+    }
     let active = true
-    let socketControl: { subscribe: (id: string) => void; close: () => void } | null = null
-    void openConversationSocket(
-      (message) => {
+    void openConversationSocket({
+      onMessage: (message) => {
         if (!active) return
         setMessages((current) => {
           if (current.some((item) => item.id === message.id || item.client_id === message.client_id)) return current
@@ -446,27 +471,99 @@ export default function App() {
               new Date(left.created_at).getTime() - new Date(right.created_at).getTime(),
           )
         })
+        if (selectedConversationId === message.conversation_id) {
+          socketControlRef.current?.sendRead(message.conversation_id)
+          void markMessagesRead(message.conversation_id).catch(() => {})
+        }
       },
-      setSocketStatus,
-      (event) => {
+      onStatus: setSocketStatus,
+      onMemberJoined: (event) => {
         if (!active) return
         if (selectedConversationId === event.conversation_id) {
           void listMembers(selectedConversationId).then(setMembers)
         }
       },
-    ).then((control) => {
+      onTyping: (event) => {
+        if (!active) return
+        if (event.conversation_id === selectedConversationId && event.user_id !== user.id) {
+          setTypingUsers((current) => {
+            const next = { ...current }
+            if (event.is_typing) {
+              next[event.user_id] = { username: event.username, expiresAt: Date.now() + 3500 }
+            } else {
+              delete next[event.user_id]
+            }
+            return next
+          })
+        }
+      },
+      onReadReceipt: (event) => {
+        if (!active) return
+        if (event.conversation_id === selectedConversationId) {
+          setMessages((current) =>
+            current.map((m) => (m.sender_id === user.id ? { ...m, status: 'read' } : m)),
+          )
+        }
+      },
+      onMessageDelivered: (event) => {
+        if (!active) return
+        if (event.conversation_id === selectedConversationId) {
+          setMessages((current) =>
+            current.map((m) =>
+              m.id === event.message_id && m.status !== 'read' ? { ...m, status: 'delivered' } : m,
+            ),
+          )
+        }
+      },
+      onPresence: (event) => {
+        if (!active) return
+        setOnlineUserIds((current) => {
+          const next = new Set(current)
+          if (event.status === 'online') {
+            next.add(event.user_id)
+          } else {
+            next.delete(event.user_id)
+          }
+          return next
+        })
+      },
+    }).then((control) => {
       if (!active) {
         control.close()
         return
       }
-      socketControl = control
-      if (selectedConversationId) control.subscribe(selectedConversationId)
+      socketControlRef.current = control
+      if (selectedConversationId) {
+        control.subscribe(selectedConversationId)
+        control.sendRead(selectedConversationId)
+      }
     })
     return () => {
       active = false
-      socketControl?.close()
+      socketControlRef.current?.close()
+      socketControlRef.current = null
     }
   }, [user, selectedConversationId])
+
+  // Periodic cleanup of expired typing indicators
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now()
+      setTypingUsers((current) => {
+        let changed = false
+        const next: Record<string, { username: string; expiresAt: number }> = {}
+        for (const [id, info] of Object.entries(current)) {
+          if (info.expiresAt > now) {
+            next[id] = info
+          } else {
+            changed = true
+          }
+        }
+        return changed ? next : current
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   // User search for conversation creation
   useEffect(() => {
@@ -599,6 +696,14 @@ export default function App() {
   async function handleSend() {
     const content = draft.trim()
     if (!selectedConversationId || !content || sending) return
+
+    // Clear typing indicator on send
+    if (isTypingRef.current && selectedConversationId) {
+      isTypingRef.current = false
+      socketControlRef.current?.sendTyping(selectedConversationId, false)
+    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+
     setSending(true)
     setMessagesError('')
     try {
@@ -628,6 +733,31 @@ export default function App() {
     }
   }
 
+  function handleDraftChange(value: string) {
+    setDraft(value)
+    if (!selectedConversationId) return
+
+    if (value.trim().length > 0) {
+      if (!isTypingRef.current) {
+        isTypingRef.current = true
+        socketControlRef.current?.sendTyping(selectedConversationId, true)
+      }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = window.setTimeout(() => {
+        isTypingRef.current = false
+        if (selectedConversationId) {
+          socketControlRef.current?.sendTyping(selectedConversationId, false)
+        }
+      }, 2500)
+    } else {
+      if (isTypingRef.current) {
+        isTypingRef.current = false
+        socketControlRef.current?.sendTyping(selectedConversationId, false)
+      }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+    }
+  }
+
   if (authLoading) {
     return <main className="flex min-h-screen items-center justify-center bg-[#0b1020] text-sm text-slate-400">Restoring session...</main>
   }
@@ -636,9 +766,15 @@ export default function App() {
     return <AuthPanel onAuthenticated={setUser} />
   }
 
-  const directPartner = selectedConversation?.kind === 'direct'
-    ? members.find((m) => m.user_id !== user.id)?.username
+  const directPartnerMember = selectedConversation?.kind === 'direct'
+    ? members.find((m) => m.user_id !== user.id)
     : null
+  const directPartner = directPartnerMember?.username || null
+  const isDirectPartnerOnline = directPartnerMember ? onlineUserIds.has(directPartnerMember.user_id) : false
+
+  const activeTypingNames = Object.values(typingUsers)
+    .filter((u) => Date.now() < u.expiresAt)
+    .map((u) => u.username)
 
   const activeChannelTitle = selectedConversation
     ? selectedConversation.kind === 'direct'
@@ -765,8 +901,30 @@ export default function App() {
                 </span>
               ) : null}
               <div>
-                <h1 className="text-xl font-semibold text-white flex items-center gap-2">
-                  {activeChannelTitle}
+                <h1 className="text-xl font-semibold text-white flex items-center gap-2.5">
+                  <span>{activeChannelTitle}</span>
+                  {selectedConversation?.kind === 'direct' && directPartnerMember ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-normal">
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          isDirectPartnerOnline
+                            ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                            : 'bg-slate-600'
+                        }`}
+                      />
+                      <span
+                        className={
+                          isDirectPartnerOnline ? 'text-emerald-400 text-xs' : 'text-slate-500 text-xs'
+                        }
+                      >
+                        {isDirectPartnerOnline ? 'Online' : 'Offline'}
+                      </span>
+                    </span>
+                  ) : selectedConversation?.kind === 'group' ? (
+                    <span className="text-xs text-slate-400 font-normal">
+                      • {members.filter((m) => onlineUserIds.has(m.user_id)).length} online
+                    </span>
+                  ) : null}
                 </h1>
                 {selectedConversation ? (
                   <p className="text-xs text-slate-400">
@@ -889,7 +1047,18 @@ export default function App() {
                       >
                         <div className="mb-1 flex items-center justify-between gap-4 text-[11px] uppercase tracking-[0.18em] text-slate-400">
                           <span className="font-semibold text-slate-300">{senderLabel}</span>
-                          <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="flex items-center gap-1.5 lowercase">
+                            <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            {isSelf ? (
+                              message.status === 'read' ? (
+                                <span className="text-teal-400 font-bold text-xs tracking-tighter" title="Read">✓✓</span>
+                              ) : message.status === 'delivered' ? (
+                                <span className="text-slate-400 font-medium text-xs tracking-tighter" title="Delivered">✓✓</span>
+                              ) : (
+                                <span className="text-slate-500 font-medium text-xs" title="Sent">✓</span>
+                              )
+                            ) : null}
+                          </span>
                         </div>
                         <p className="text-sm leading-6 whitespace-pre-wrap break-words">{displayContent}</p>
                         {message.is_encrypted ? (
@@ -902,6 +1071,20 @@ export default function App() {
                   )
                 })}
               </div>
+
+              {/* Ephemeral Typing Indicators Banner */}
+              {activeTypingNames.length > 0 ? (
+                <div className="flex items-center gap-2 border-t border-slate-800/80 bg-[#0c1322] px-6 py-2 text-xs text-teal-300">
+                  <div className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce [animation-delay:0.15s]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce [animation-delay:0.3s]" />
+                  </div>
+                  <span className="italic">
+                    {activeTypingNames.join(', ')} {activeTypingNames.length === 1 ? 'is' : 'are'} typing...
+                  </span>
+                </div>
+              ) : null}
 
               <div className="border-t border-slate-800 bg-[#0d1424] p-4">
                 <div className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 px-3 py-3">
@@ -918,7 +1101,7 @@ export default function App() {
                   </button>
                   <input
                     value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
+                    onChange={(event) => handleDraftChange(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && !event.shiftKey) {
                         event.preventDefault()
@@ -961,10 +1144,18 @@ export default function App() {
                       key={member.id}
                       className="flex items-center justify-between rounded-lg bg-slate-900/70 px-3 py-2 text-xs"
                     >
-                      <div className="flex items-center gap-2 truncate">
-                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-bold text-slate-300">
-                          {member.username.charAt(0).toUpperCase()}
-                        </span>
+                      <div className="flex items-center gap-2.5 truncate">
+                        <div className="relative">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-bold text-slate-300">
+                            {member.username.charAt(0).toUpperCase()}
+                          </span>
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[#101827] ${
+                              onlineUserIds.has(member.user_id) ? 'bg-emerald-400' : 'bg-slate-600'
+                            }`}
+                            title={onlineUserIds.has(member.user_id) ? 'Online' : 'Offline'}
+                          />
+                        </div>
                         <span className="truncate text-slate-200">
                           {member.username} {member.user_id === user.id ? '(You)' : ''}
                         </span>

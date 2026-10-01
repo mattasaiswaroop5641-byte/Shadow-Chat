@@ -9,7 +9,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.core.database import get_database
 from app.routes.auth import UserReply, verified_user
-from app.routes.websocket import publish
+from app.routes.websocket import is_user_online, publish
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -53,6 +53,7 @@ class MemberReply(BaseModel):
     role: Literal["owner", "member"]
     created_at: datetime
     public_key: str | None = None
+    is_online: bool = False
 
 
 def serialize_conversation(document: dict[str, Any]) -> ConversationReply:
@@ -392,6 +393,7 @@ async def list_members(
                 if isinstance(users_by_id.get(m["user_id"]), dict)
                 else getattr(users_by_id.get(m["user_id"]), "public_key", None)
             ),
+            is_online=is_user_online(m["user_id"]),
         )
         for m in memberships
     ]

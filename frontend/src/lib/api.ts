@@ -1,4 +1,15 @@
-import type { Conversation, ConversationMember, Message, TokenReply, User, UserSummary } from '../types'
+import type {
+  Conversation,
+  ConversationMember,
+  Message,
+  MessageDeliveredEvent,
+  PresenceEvent,
+  ReadReceiptEvent,
+  TokenReply,
+  TypingEvent,
+  User,
+  UserSummary,
+} from '../types'
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 const configuredWsUrl = import.meta.env.VITE_WS_URL?.trim()
@@ -260,11 +271,47 @@ export async function getUserPublicKey(userId: string): Promise<string | null> {
 }
 
 
+export function markMessagesRead(conversationId: string): Promise<void> {
+  return request<void>(`/conversations/${encodeURIComponent(conversationId)}/messages/read`, {
+    method: 'POST',
+  })
+}
+
+export function getUsersPresence(userIds: string[]): Promise<Record<string, boolean>> {
+  if (userIds.length === 0) return Promise.resolve({})
+  return request<Record<string, boolean>>(
+    `/users/presence?user_ids=${encodeURIComponent(userIds.join(','))}`,
+  )
+}
+
+export type SocketHandlers = {
+  onMessage: (message: Message) => void
+  onStatus: (status: 'connected' | 'disconnected') => void
+  onMemberJoined?: (event: { conversation_id: string; user: { id: string; username: string } }) => void
+  onTyping?: (event: TypingEvent) => void
+  onReadReceipt?: (event: ReadReceiptEvent) => void
+  onMessageDelivered?: (event: MessageDeliveredEvent) => void
+  onPresence?: (event: PresenceEvent) => void
+}
+
 export async function openConversationSocket(
-  onMessage: (message: Message) => void,
-  onStatus: (status: 'connected' | 'disconnected') => void,
-  onMemberJoined?: (event: { conversation_id: string; user: { id: string; username: string } }) => void,
-): Promise<{ subscribe: (conversationId: string) => void; close: () => void }> {
+  handlers: SocketHandlers | ((message: Message) => void),
+  legacyOnStatus?: (status: 'connected' | 'disconnected') => void,
+  legacyOnMemberJoined?: (event: { conversation_id: string; user: { id: string; username: string } }) => void,
+): Promise<{
+  subscribe: (conversationId: string) => void
+  sendTyping: (conversationId: string, isTyping: boolean) => void
+  sendRead: (conversationId: string) => void
+  close: () => void
+}> {
+  const onMessage = typeof handlers === 'function' ? handlers : handlers.onMessage
+  const onStatus = typeof handlers === 'function' ? (legacyOnStatus || (() => {})) : handlers.onStatus
+  const onMemberJoined = typeof handlers === 'function' ? legacyOnMemberJoined : handlers.onMemberJoined
+  const onTyping = typeof handlers === 'object' ? handlers.onTyping : undefined
+  const onReadReceipt = typeof handlers === 'object' ? handlers.onReadReceipt : undefined
+  const onMessageDelivered = typeof handlers === 'object' ? handlers.onMessageDelivered : undefined
+  const onPresence = typeof handlers === 'object' ? handlers.onPresence : undefined
+
   const websocketUrl = configuredWsUrl || (apiBaseUrl.replace(/^http/, 'ws') + '/ws')
   let closedByClient = false
   let subscribedConversation: string | null = null
@@ -296,6 +343,18 @@ export async function openConversationSocket(
           if (payload.type === 'message' && payload.message) onMessage(payload.message)
           if (payload.type === 'member_joined' && payload.conversation_id && payload.user && onMemberJoined) {
             onMemberJoined({ conversation_id: payload.conversation_id, user: payload.user })
+          }
+          if (payload.type === 'typing' && onTyping) {
+            onTyping(payload as unknown as TypingEvent)
+          }
+          if (payload.type === 'read_receipt' && onReadReceipt) {
+            onReadReceipt(payload as unknown as ReadReceiptEvent)
+          }
+          if (payload.type === 'message_delivered' && onMessageDelivered) {
+            onMessageDelivered(payload as unknown as MessageDeliveredEvent)
+          }
+          if (payload.type === 'presence' && onPresence) {
+            onPresence(payload as unknown as PresenceEvent)
           }
         } catch {
           // Ignore malformed server events; REST remains the source of truth.
@@ -335,6 +394,16 @@ export async function openConversationSocket(
       subscribedConversation = conversationId
       if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'subscribe', conversation_id: conversationId }))
+      }
+    },
+    sendTyping: (conversationId: string, isTyping: boolean) => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'typing', conversation_id: conversationId, is_typing: isTyping }))
+      }
+    },
+    sendRead: (conversationId: string) => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'read', conversation_id: conversationId }))
       }
     },
     close: () => {

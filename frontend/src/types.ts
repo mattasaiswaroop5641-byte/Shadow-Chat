@@ -63,6 +63,7 @@ export type ConversationMember = {
   role: 'owner' | 'member'
   created_at: string
   public_key?: string | null
+  is_online?: boolean
 }
 
 export type Message = {
@@ -73,6 +74,33 @@ export type Message = {
   client_id: string
   nonce?: string | null
   is_encrypted?: boolean
+  status?: 'sent' | 'delivered' | 'read'
   created_at: string
+}
+
+export type TypingEvent = {
+  type: 'typing'
+  conversation_id: string
+  user_id: string
+  username: string
+  is_typing: boolean
+}
+
+export type ReadReceiptEvent = {
+  type: 'read_receipt'
+  conversation_id: string
+  reader_id: string
+}
+
+export type MessageDeliveredEvent = {
+  type: 'message_delivered'
+  conversation_id: string
+  message_id: string
+}
+
+export type PresenceEvent = {
+  type: 'presence'
+  user_id: string
+  status: 'online' | 'offline'
 }
 

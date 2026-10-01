@@ -11,6 +11,7 @@ from slowapi.util import get_remote_address
 
 from app.core.database import get_database
 from app.routes.auth import UserReply, verified_user
+from app.routes.websocket import is_user_online
 
 router = APIRouter(prefix="/users", tags=["users"])
 limiter = Limiter(key_func=get_remote_address)
@@ -58,6 +59,15 @@ async def search_users(
         )
         for doc in users
     ]
+
+
+@router.get("/presence", response_model=dict[str, bool])
+async def get_users_presence(
+    user_ids: str = Query(..., min_length=1, max_length=1000),
+    user: UserReply = Depends(verified_user),
+) -> dict[str, bool]:
+    ids = [uid.strip() for uid in user_ids.split(",") if ObjectId.is_valid(uid.strip())]
+    return {uid: is_user_online(ObjectId(uid)) for uid in ids}
 
 
 @router.put("/me/public-key", status_code=status.HTTP_204_NO_CONTENT)

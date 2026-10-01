@@ -45,6 +45,33 @@ def allow_connection_attempt(client_host: str | None) -> bool:
     return True
 
 
+def is_user_online(user_id: ObjectId) -> bool:
+    return bool(connections.get(user_id))
+
+
+def get_online_user_ids() -> set[str]:
+    return {str(uid) for uid, queues in connections.items() if queues}
+
+
+async def get_user_peer_ids(user_id: ObjectId, database: AsyncIOMotorDatabase) -> list[ObjectId]:
+    try:
+        if not hasattr(database, "conversation_memberships") or not hasattr(database.conversation_memberships, "find"):
+            return []
+        user_memberships = await database.conversation_memberships.find(
+            {"user_id": user_id}, {"conversation_id": 1}
+        ).to_list(length=1000)
+        conv_ids = [m["conversation_id"] for m in user_memberships]
+        if not conv_ids:
+            return []
+        peer_memberships = await database.conversation_memberships.find(
+            {"conversation_id": {"$in": conv_ids}}, {"user_id": 1}
+        ).to_list(length=5000)
+        peer_ids = list({m["user_id"] for m in peer_memberships if m["user_id"] != user_id})
+        return peer_ids
+    except Exception:
+        return []
+
+
 async def authenticate(websocket: WebSocket, database: AsyncIOMotorDatabase) -> ObjectId | None:
     try:
         event = await asyncio.wait_for(websocket.receive_json(), timeout=10)
@@ -88,7 +115,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         return
     queue: asyncio.Queue[str] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
     message_times: deque[float] = deque()
+    
+    is_first_connection = len(connections[user_id]) == 0
     connections[user_id].add(queue)
+    if is_first_connection:
+        peer_ids = await get_user_peer_ids(user_id, database)
+        if peer_ids:
+            await publish(peer_ids, {"type": "presence", "user_id": str(user_id), "status": "online"})
+
     try:
         while True:
             send_task = asyncio.create_task(queue.get())
@@ -114,27 +148,110 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 return
             message_times.append(now)
             event = json.loads(raw)
-            if not isinstance(event, dict) or event.get("type") != "subscribe":
+            if not isinstance(event, dict):
                 await websocket.close(code=1008)
                 return
-            if not isinstance(event.get("conversation_id"), str) or not ObjectId.is_valid(
-                event["conversation_id"]
-            ):
+            event_type = event.get("type")
+            if event_type not in ("subscribe", "typing", "read", "delivery_ack"):
                 await websocket.close(code=1008)
                 return
+
+            conv_id_raw = event.get("conversation_id")
+            if not isinstance(conv_id_raw, str) or not ObjectId.is_valid(conv_id_raw):
+                await websocket.close(code=1008)
+                return
+
             membership = await database.conversation_memberships.find_one(
                 {
-                    "conversation_id": ObjectId(event["conversation_id"]),
+                    "conversation_id": ObjectId(conv_id_raw),
                     "user_id": user_id,
                 }
             )
             if membership is None:
                 await websocket.close(code=1008)
                 return
-            await websocket.send_json({"type": "subscribed", "conversation_id": event["conversation_id"]})
+
+            if event_type == "subscribe":
+                await websocket.send_json({"type": "subscribed", "conversation_id": conv_id_raw})
+            elif event_type == "typing":
+                is_typing = bool(event.get("is_typing", True))
+                target_user_ids: list[ObjectId] = []
+                try:
+                    if hasattr(database.conversation_memberships, "find"):
+                        conv_members = await database.conversation_memberships.find(
+                            {"conversation_id": ObjectId(conv_id_raw)}, {"user_id": 1}
+                        ).to_list(length=200)
+                        target_user_ids = [m["user_id"] for m in conv_members if m["user_id"] != user_id]
+                except Exception:
+                    pass
+                caller_user = await database.users.find_one({"_id": user_id})
+                username = caller_user.get("username", "Someone") if caller_user else "Someone"
+                if target_user_ids:
+                    await publish(target_user_ids, {
+                        "type": "typing",
+                        "conversation_id": conv_id_raw,
+                        "user_id": str(user_id),
+                        "username": username,
+                        "is_typing": is_typing,
+                    })
+            elif event_type == "read":
+                try:
+                    if hasattr(database, "messages") and hasattr(database.messages, "update_many"):
+                        await database.messages.update_many(
+                            {
+                                "conversation_id": ObjectId(conv_id_raw),
+                                "sender_id": {"$ne": user_id},
+                                "read_by": {"$ne": user_id},
+                            },
+                            {
+                                "$addToSet": {"read_by": user_id},
+                                "$set": {"status": "read"},
+                            },
+                        )
+                    if hasattr(database.conversation_memberships, "find"):
+                        conv_members = await database.conversation_memberships.find(
+                            {"conversation_id": ObjectId(conv_id_raw)}, {"user_id": 1}
+                        ).to_list(length=200)
+                        target_user_ids = [m["user_id"] for m in conv_members if m["user_id"] != user_id]
+                        if target_user_ids:
+                            await publish(target_user_ids, {
+                                "type": "read_receipt",
+                                "conversation_id": conv_id_raw,
+                                "reader_id": str(user_id),
+                            })
+                except Exception:
+                    pass
+            elif event_type == "delivery_ack":
+                msg_id_raw = event.get("message_id")
+                if isinstance(msg_id_raw, str) and ObjectId.is_valid(msg_id_raw):
+                    try:
+                        if hasattr(database, "messages") and hasattr(database.messages, "update_one"):
+                            await database.messages.update_one(
+                                {"_id": ObjectId(msg_id_raw), "status": {"$ne": "read"}},
+                                {
+                                    "$addToSet": {"delivered_to": user_id},
+                                    "$set": {"status": "delivered"},
+                                },
+                            )
+                        if hasattr(database.conversation_memberships, "find"):
+                            conv_members = await database.conversation_memberships.find(
+                                {"conversation_id": ObjectId(conv_id_raw)}, {"user_id": 1}
+                            ).to_list(length=200)
+                            target_user_ids = [m["user_id"] for m in conv_members if m["user_id"] != user_id]
+                            if target_user_ids:
+                                await publish(target_user_ids, {
+                                    "type": "message_delivered",
+                                    "conversation_id": conv_id_raw,
+                                    "message_id": msg_id_raw,
+                                })
+                    except Exception:
+                        pass
     except (WebSocketDisconnect, json.JSONDecodeError):
         pass
     finally:
         connections[user_id].discard(queue)
         if not connections[user_id]:
             connections.pop(user_id, None)
+            peer_ids = await get_user_peer_ids(user_id, database)
+            if peer_ids:
+                await publish(peer_ids, {"type": "presence", "user_id": str(user_id), "status": "offline"})
