@@ -37,31 +37,17 @@ import {
   uploadAvatar,
   uploadPublicKey,
   verifyEmail,
+  deleteConversation,
 } from './lib/api'
 import type {
   Attachment,
   Conversation,
   ConversationMember,
   Message,
-  NavItem,
-  ServerItem,
   User,
   UserSummary,
 } from './types'
 import LandingPage from './LandingPage'
-
-const navItems: NavItem[] = [
-  { id: 'messages', label: 'Messages', badge: '3', active: true },
-  { id: 'discover', label: 'Discover' },
-  { id: 'calls', label: 'Calls' },
-  { id: 'settings', label: 'Settings' },
-]
-
-const serverList: ServerItem[] = [
-  { id: 'core', name: 'Core', accent: 'bg-emerald-500', unread: 3 },
-  { id: 'design', name: 'Design', accent: 'bg-violet-500' },
-  { id: 'ops', name: 'Ops', accent: 'bg-cyan-500', unread: 5 },
-]
 
 
 
@@ -206,6 +192,9 @@ export default function App() {
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   const selectedConversation = conversations.find((c) => c.id === selectedConversationId) || null
+  const [activeCategory, setActiveCategory] = useState<'all' | 'direct' | 'group'>('all')
+  const [chatSearchQuery, setChatSearchQuery] = useState('')
+  const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null)
 
   useEffect(() => {
     restoreSession().then(setUser).finally(() => setAuthLoading(false))
@@ -551,6 +540,11 @@ export default function App() {
           ),
         )
       },
+      onConversationDeleted: (event) => {
+        if (!active) return
+        setConversations((current) => current.filter((c) => c.id !== event.conversation_id))
+        setSelectedConversationId((current) => (current === event.conversation_id ? null : current))
+      },
     }).then((control) => {
       if (!active) {
         control.close()
@@ -659,7 +653,7 @@ export default function App() {
       const conv = await createConversation({
         kind: 'group',
         participant_ids: selectedGroupParticipants.map((p) => p.id),
-        title: createTitle.trim() || undefined,
+        title: createTitle.trim() || 'Stealth Group',
       })
       setConversations((current) => [conv, ...current])
       setSelectedConversationId(conv.id)
@@ -931,6 +925,33 @@ export default function App() {
     }
   }
 
+  async function handleDeleteConversation(convId: string, event?: React.MouseEvent) {
+    if (event) event.stopPropagation()
+    const conv = conversations.find((c) => c.id === convId)
+    const label =
+      conv?.kind === 'direct'
+        ? conv.recipient_username
+          ? `@${conv.recipient_username}`
+          : 'this direct chat'
+        : conv?.title || `Group ${convId.slice(-6)}`
+
+    if (!window.confirm(`Are you sure you want to remove or leave ${label}?`)) return
+
+    setDeletingConversationId(convId)
+    try {
+      await deleteConversation(convId)
+      setConversations((prev) => prev.filter((c) => c.id !== convId))
+      setSelectedConversationId((prev) => (prev === convId ? null : prev))
+      if (selectedConversationId === convId) {
+        setMessages([])
+      }
+    } catch (err: any) {
+      setConversationError(err?.message || 'Failed to remove conversation')
+    } finally {
+      setDeletingConversationId(null)
+    }
+  }
+
   function handleDraftChange(value: string) {
     setDraft(value)
     if (!selectedConversationId) return
@@ -986,6 +1007,24 @@ export default function App() {
       : selectedConversation.title || `Group ${selectedConversation.id.slice(-6)}`
     : 'No conversation'
 
+  const directConversations = conversations.filter((c) => c.kind === 'direct')
+  const groupConversations = conversations.filter((c) => c.kind === 'group')
+
+  const filteredDirect = directConversations.filter((c) => {
+    if (!chatSearchQuery.trim()) return true
+    const q = chatSearchQuery.trim().toLowerCase()
+    const name = c.recipient_username?.toLowerCase() || ''
+    const title = c.title?.toLowerCase() || ''
+    return name.includes(q) || title.includes(q)
+  })
+
+  const filteredGroups = groupConversations.filter((c) => {
+    if (!chatSearchQuery.trim()) return true
+    const q = chatSearchQuery.trim().toLowerCase()
+    const title = c.title?.toLowerCase() || ''
+    return title.includes(q)
+  })
+
   return (
     <div className="relative min-h-screen bg-[#070b14] text-slate-100 overflow-hidden">
       {/* Cyber Ambient Glowing Orbs */}
@@ -997,6 +1036,7 @@ export default function App() {
       </div>
 
       <div className="relative flex min-h-screen z-10">
+        {/* Left Rail (Navigation & Category Tabs) */}
         <aside className="w-20 border-r border-white/10 bg-[#090e1a]/60 backdrop-blur-2xl p-3 flex flex-col justify-between shadow-[4px_0_24px_rgba(0,0,0,0.3)]">
           <div>
             <div className="mb-6 relative group flex items-center justify-center">
@@ -1009,32 +1049,119 @@ export default function App() {
                 />
               </div>
             </div>
-            <nav className="space-y-3">
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  className={`flex w-full items-center justify-center rounded-xl px-2 py-3 text-xs font-medium transition ${
-                    item.active
-                      ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm'
-                      : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-100'
-                  }`}
-                  type="button"
-                >
-                  {item.label.charAt(0)}
-                  {item.badge ? (
-                    <span className="ml-1 rounded-full bg-emerald-500 px-1.5 text-[10px] text-slate-950 font-bold">{item.badge}</span>
-                  ) : null}
-                </button>
-              ))}
+
+            {/* Filter Navigation Tabs */}
+            <nav className="space-y-2">
+              <button
+                onClick={() => setActiveCategory('all')}
+                type="button"
+                title="All Conversations"
+                className={`flex w-full flex-col items-center justify-center rounded-xl p-2.5 text-xs font-medium transition cursor-pointer ${
+                  activeCategory === 'all'
+                    ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+                    : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'
+                }`}
+              >
+                <span className="text-base">💬</span>
+                <span className="mt-1 text-[11px] font-semibold">All</span>
+                {conversations.length > 0 ? (
+                  <span className="mt-0.5 rounded-full bg-emerald-500/30 border border-emerald-500/50 px-1.5 text-[9px] text-emerald-200 font-bold">
+                    {conversations.length}
+                  </span>
+                ) : null}
+              </button>
+
+              <button
+                onClick={() => setActiveCategory('direct')}
+                type="button"
+                title="Direct Messages"
+                className={`flex w-full flex-col items-center justify-center rounded-xl p-2.5 text-xs font-medium transition cursor-pointer ${
+                  activeCategory === 'direct'
+                    ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+                    : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'
+                }`}
+              >
+                <span className="text-base">👤</span>
+                <span className="mt-1 text-[11px] font-semibold">Direct</span>
+                {directConversations.length > 0 ? (
+                  <span className="mt-0.5 rounded-full bg-emerald-500/30 border border-emerald-500/50 px-1.5 text-[9px] text-emerald-200 font-bold">
+                    {directConversations.length}
+                  </span>
+                ) : null}
+              </button>
+
+              <button
+                onClick={() => setActiveCategory('group')}
+                type="button"
+                title="Group Channels"
+                className={`flex w-full flex-col items-center justify-center rounded-xl p-2.5 text-xs font-medium transition cursor-pointer ${
+                  activeCategory === 'group'
+                    ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+                    : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'
+                }`}
+              >
+                <span className="text-base">👥</span>
+                <span className="mt-1 text-[11px] font-semibold">Groups</span>
+                {groupConversations.length > 0 ? (
+                  <span className="mt-0.5 rounded-full bg-emerald-500/30 border border-emerald-500/50 px-1.5 text-[9px] text-emerald-200 font-bold">
+                    {groupConversations.length}
+                  </span>
+                ) : null}
+              </button>
             </nav>
+          </div>
+
+          {/* Left Rail Bottom User & Settings */}
+          <div className="flex flex-col items-center gap-2 pt-3 border-t border-white/10">
+            <button
+              type="button"
+              onClick={openProfileModal}
+              title={`@${user.username} - Edit Profile`}
+              className="group relative flex items-center justify-center rounded-xl p-1 transition hover:bg-white/[0.08] cursor-pointer"
+            >
+              <UserAvatar
+                username={user.username}
+                avatarUrl={user.avatar_url}
+                size="sm"
+                isOnline={true}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={openProfileModal}
+              title="Profile & Settings"
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] transition text-sm cursor-pointer"
+            >
+              ⚙️
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await logout()
+                setUser(null)
+              }}
+              title="Log out"
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition text-sm cursor-pointer"
+            >
+              🚪
+            </button>
           </div>
         </aside>
 
-        <aside className="w-72 border-r border-white/10 bg-[#0b1220]/50 backdrop-blur-2xl p-4 shadow-[4px_0_24px_rgba(0,0,0,0.2)]">
-          <div className="mb-5 flex items-center justify-between">
+        {/* Dynamic Secondary Sidebar */}
+        <aside className="w-80 border-r border-white/10 bg-[#0b1220]/50 backdrop-blur-2xl p-4 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.2)]">
+          {/* Header */}
+          <div className="mb-4 flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400 font-medium">Teams</p>
-              <h2 className="mt-1 text-lg font-bold text-white tracking-tight">Shadow Chat</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-white tracking-tight">Shadow Chat</h2>
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 uppercase tracking-wider">
+                  E2EE
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {conversations.length} active {conversations.length === 1 ? 'chat' : 'chats'}
+              </p>
             </div>
             <button
               onClick={() => {
@@ -1042,99 +1169,197 @@ export default function App() {
                 setCreateModalOpen(true)
               }}
               type="button"
-              className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+              className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/25 hover:border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.25)] cursor-pointer"
             >
-              + New
+              <span>+</span> New
             </button>
           </div>
 
-          <div className="space-y-3">
-            {serverList.map((server) => (
+          {/* Search Box */}
+          <div className="mb-3 relative">
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              value={chatSearchQuery}
+              onChange={(e) => setChatSearchQuery(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 pl-8 pr-7 text-xs text-slate-200 placeholder-slate-500 backdrop-blur-md focus:border-emerald-500/50 focus:bg-white/[0.07] focus:outline-none transition"
+            />
+            <span className="absolute left-2.5 top-2.5 text-xs text-slate-500 pointer-events-none">🔍</span>
+            {chatSearchQuery ? (
               <button
-                key={server.id}
                 type="button"
-                className="flex w-full items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-left backdrop-blur-md transition hover:bg-white/[0.08] hover:border-white/15"
+                onClick={() => setChatSearchQuery('')}
+                className="absolute right-2 top-2 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
               >
-                <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold text-white ${server.accent}`}>
-                  {server.name.charAt(0)}
-                </span>
-                <span className="flex-1 text-sm text-slate-200">{server.name}</span>
-                {server.unread ? (
-                  <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-slate-950 shadow-sm">
-                    {server.unread}
-                  </span>
-                ) : null}
+                ✕
               </button>
-            ))}
+            ) : null}
           </div>
 
-          <div className="mt-8">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400 font-medium">Channels</p>
-              <button
-                onClick={() => {
-                  setCreateError('')
-                  setCreateModalOpen(true)
-                }}
-                type="button"
-                className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
-              >
-                + add
-              </button>
-            </div>
-            <div className="space-y-2">
-              {conversationLoading ? <p className="text-sm text-slate-500">Loading conversations...</p> : null}
-              {!conversationLoading && conversations.length === 0 ? <p className="text-sm text-slate-500">No conversations yet.</p> : null}
-              {conversations.map((conversation) => {
-                const isSelected = conversation.id === selectedConversationId
-                const isDirect = conversation.kind === 'direct'
-                const partnerName = conversation.recipient_username || (conversation.title ? conversation.title.replace(/^@/, '') : null)
-                const isPartnerOnline = conversation.recipient_id ? onlineUserIds.has(conversation.recipient_id) : false
+          {/* Conversations Scrollable List */}
+          <div className="space-y-4 overflow-y-auto flex-1 pr-1 custom-scrollbar">
+            {conversationLoading ? (
+              <div className="py-6 text-center text-xs text-slate-500">
+                <span className="inline-block animate-pulse">Loading conversations...</span>
+              </div>
+            ) : null}
 
-                return (
-                  <button
-                    key={conversation.id}
-                    onClick={() => setSelectedConversationId(conversation.id)}
-                    type="button"
-                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-sm transition-all ${
-                      isSelected
-                        ? 'border border-emerald-500/40 border-t-emerald-400/60 bg-gradient-to-r from-emerald-500/20 via-teal-500/15 to-transparent text-white font-medium shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-xl'
-                        : 'border border-transparent text-slate-300 hover:border-white/10 hover:bg-white/[0.05]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1 text-left">
-                      {isDirect ? (
-                        <UserAvatar
-                          username={partnerName || 'User'}
-                          avatarUrl={conversation.recipient_avatar_url}
-                          size="sm"
-                          isOnline={isPartnerOnline}
-                        />
-                      ) : (
-                        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-[11px] font-bold text-emerald-400 border border-emerald-500/30">
-                          #
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-xs font-semibold text-slate-200">
-                            {isDirect
-                              ? (partnerName ? `@${partnerName}` : `Direct ${conversation.id.slice(-6)}`)
-                              : (conversation.title || `Group ${conversation.id.slice(-6)}`)}
-                          </span>
-                        </div>
-                        {isDirect && conversation.recipient_status_message ? (
-                          <p className="truncate text-[10px] text-slate-400 font-normal">
-                            {conversation.recipient_status_message}
-                          </p>
-                        ) : null}
+            {conversationError ? (
+              <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-2.5 text-xs text-rose-300">
+                {conversationError}
+              </p>
+            ) : null}
+
+            {/* Empty state when user has 0 conversations */}
+            {!conversationLoading && conversations.length === 0 ? (
+              <div className="my-auto flex flex-col items-center justify-center p-4 text-center rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.2)]">
+                  <span className="text-xl">🛡️</span>
+                </div>
+                <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">No Active Chats</h3>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Your chat list is clean and private. Click below to start your first encrypted chat.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateError('')
+                    setCreateModalOpen(true)
+                  }}
+                  className="mt-3.5 rounded-xl border border-emerald-500/40 bg-emerald-500/20 px-3.5 py-1.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.25)] cursor-pointer"
+                >
+                  + Start Chat
+                </button>
+              </div>
+            ) : null}
+
+            {/* Empty search results */}
+            {!conversationLoading && conversations.length > 0 && filteredDirect.length === 0 && filteredGroups.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-500">
+                No chats matching &quot;{chatSearchQuery}&quot;
+              </div>
+            ) : null}
+
+            {/* Direct Messages Section */}
+            {(activeCategory === 'all' || activeCategory === 'direct') && filteredDirect.length > 0 ? (
+              <div>
+                <div className="mb-2 flex items-center justify-between px-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Direct Messages ({filteredDirect.length})
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {filteredDirect.map((conversation) => {
+                    const isSelected = conversation.id === selectedConversationId
+                    const partnerName = conversation.recipient_username || (conversation.title ? conversation.title.replace(/^@/, '') : null)
+                    const isPartnerOnline = conversation.recipient_id ? onlineUserIds.has(conversation.recipient_id) : false
+
+                    return (
+                      <div
+                        key={conversation.id}
+                        className={`group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-sm transition-all ${
+                          isSelected
+                            ? 'border border-emerald-500/40 border-t-emerald-400/60 bg-gradient-to-r from-emerald-500/20 via-teal-500/15 to-transparent text-white font-medium shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-xl'
+                            : 'border border-transparent text-slate-300 hover:border-white/10 hover:bg-white/[0.05]'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedConversationId(conversation.id)}
+                          className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
+                        >
+                          <UserAvatar
+                            username={partnerName || 'User'}
+                            avatarUrl={conversation.recipient_avatar_url}
+                            size="sm"
+                            isOnline={isPartnerOnline}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <span className="truncate block text-xs font-semibold text-slate-200">
+                              {partnerName ? `@${partnerName}` : `Direct ${conversation.id.slice(-6)}`}
+                            </span>
+                            {conversation.recipient_status_message ? (
+                              <p className="truncate text-[10px] text-slate-400 font-normal">
+                                {conversation.recipient_status_message}
+                              </p>
+                            ) : null}
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteConversation(conversation.id, e)}
+                          title="Delete / close direct chat"
+                          disabled={deletingConversationId === conversation.id}
+                          className="opacity-0 group-hover:opacity-100 rounded-lg p-1 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 transition duration-150 cursor-pointer ml-1"
+                        >
+                          {deletingConversationId === conversation.id ? (
+                            <span className="text-[10px]">⏳</span>
+                          ) : (
+                            <span className="text-[11px]">🗑️</span>
+                          )}
+                        </button>
                       </div>
-                    </div>
-                  </button>
-                )
-              })}
-              {conversationError ? <p className="text-sm text-rose-300">{conversationError}</p> : null}
-            </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Group Channels Section */}
+            {(activeCategory === 'all' || activeCategory === 'group') && filteredGroups.length > 0 ? (
+              <div>
+                <div className="mb-2 flex items-center justify-between px-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Group Channels ({filteredGroups.length})
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {filteredGroups.map((conversation) => {
+                    const isSelected = conversation.id === selectedConversationId
+                    const displayTitle = conversation.title || `Group ${conversation.id.slice(-6)}`
+
+                    return (
+                      <div
+                        key={conversation.id}
+                        className={`group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-sm transition-all ${
+                          isSelected
+                            ? 'border border-emerald-500/40 border-t-emerald-400/60 bg-gradient-to-r from-emerald-500/20 via-teal-500/15 to-transparent text-white font-medium shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-xl'
+                            : 'border border-transparent text-slate-300 hover:border-white/10 hover:bg-white/[0.05]'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedConversationId(conversation.id)}
+                          className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
+                        >
+                          <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-[12px] font-bold text-emerald-400 border border-emerald-500/30">
+                            #
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <span className="truncate block text-xs font-semibold text-slate-200">
+                              {displayTitle}
+                            </span>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteConversation(conversation.id, e)}
+                          title="Leave or delete group"
+                          disabled={deletingConversationId === conversation.id}
+                          className="opacity-0 group-hover:opacity-100 rounded-lg p-1 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 transition duration-150 cursor-pointer ml-1"
+                        >
+                          {deletingConversationId === conversation.id ? (
+                            <span className="text-[10px]">⏳</span>
+                          ) : (
+                            <span className="text-[11px]">🗑️</span>
+                          )}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
           </div>
         </aside>
 
@@ -1221,6 +1446,21 @@ export default function App() {
                 </button>
               ) : null}
 
+              {selectedConversation ? (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteConversation(selectedConversation.id)}
+                  title={selectedConversation.kind === 'direct' ? 'Delete direct chat' : 'Leave / delete group'}
+                  disabled={deletingConversationId === selectedConversation.id}
+                  className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs font-medium text-rose-300 transition hover:bg-rose-500/20 hover:border-rose-500/50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>🗑️</span>
+                  <span className="hidden md:inline">
+                    {selectedConversation.kind === 'direct' ? 'Delete Chat' : 'Leave Group'}
+                  </span>
+                </button>
+              ) : null}
+
               {conversationAesKey ? (
                 <button
                   type="button"
@@ -1280,7 +1520,47 @@ export default function App() {
           </header>
 
           <div className="flex flex-1 overflow-hidden">
-            <div className="flex flex-1 flex-col">
+            {!selectedConversation ? (
+              <div className="flex flex-1 flex-col items-center justify-center p-8 text-center bg-[#070b14]/30 backdrop-blur-sm">
+                <div className="relative mb-6 flex h-24 w-24 items-center justify-center rounded-3xl bg-white/[0.05] border border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-2xl">
+                  <div className="absolute -inset-2 rounded-3xl bg-emerald-500/20 blur-xl opacity-60 animate-pulse [animation-duration:4s]" />
+                  <img
+                    src="/shadow-chat-3d-glass.png"
+                    alt="Shadow Chat"
+                    className="relative h-14 w-14 object-contain drop-shadow-[0_4px_16px_rgba(45,212,191,0.6)]"
+                  />
+                </div>
+                <h2 className="text-2xl font-bold text-white tracking-tight">Shadow Chat Encrypted Mesh</h2>
+                <p className="mt-2 text-sm text-slate-400 max-w-md leading-relaxed">
+                  Decentralized-style end-to-end encryption with WebCrypto AES-GCM &amp; ECDH. Your communications are completely stealth, tamper-proof, and ephemeral.
+                </p>
+                <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateError('')
+                      setCreateKind('direct')
+                      setCreateModalOpen(true)
+                    }}
+                    className="flex items-center gap-2 rounded-2xl border border-emerald-500/40 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 px-5 py-2.5 text-sm font-semibold text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.3)] backdrop-blur-xl transition hover:brightness-110 cursor-pointer"
+                  >
+                    <span>👤</span> New Direct Chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateError('')
+                      setCreateKind('group')
+                      setCreateModalOpen(true)
+                    }}
+                    className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-semibold text-slate-200 shadow-sm backdrop-blur-xl transition hover:bg-white/[0.1] hover:border-white/20 cursor-pointer"
+                  >
+                    <span>👥</span> New Group Channel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col">
               <div className="border-b border-slate-800 bg-[#0d1424]/60 px-6 py-2.5 text-xs text-slate-400 flex items-center justify-between">
                 <span>{backendStatus}</span>
                 {selectedConversation ? (
@@ -1666,6 +1946,7 @@ export default function App() {
                 </div>
               </div>
             </div>
+          )}
 
             {/* Participants Sidebar */}
             {membersDrawerOpen && selectedConversation ? (

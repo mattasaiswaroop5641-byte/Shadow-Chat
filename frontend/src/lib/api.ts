@@ -221,6 +221,12 @@ export function createConversation(
   })
 }
 
+export function deleteConversation(conversationId: string): Promise<void> {
+  return request<void>(`/conversations/${encodeURIComponent(conversationId)}`, {
+    method: 'DELETE',
+  })
+}
+
 export function listMembers(conversationId: string): Promise<ConversationMember[]> {
   return request<ConversationMember[]>(`/conversations/${encodeURIComponent(conversationId)}/members`)
 }
@@ -386,6 +392,7 @@ export type SocketHandlers = {
   onMessageEdited?: (event: MessageEditedEvent) => void
   onMessageDeleted?: (event: MessageDeletedEvent) => void
   onUserProfileUpdated?: (event: UserProfileUpdatedEvent) => void
+  onConversationDeleted?: (event: { conversation_id: string }) => void
 }
 
 export async function openConversationSocket(
@@ -409,6 +416,7 @@ export async function openConversationSocket(
   const onMessageEdited = typeof handlers === 'object' ? handlers.onMessageEdited : undefined
   const onMessageDeleted = typeof handlers === 'object' ? handlers.onMessageDeleted : undefined
   const onUserProfileUpdated = typeof handlers === 'object' ? handlers.onUserProfileUpdated : undefined
+  const onConversationDeleted = typeof handlers === 'object' ? handlers.onConversationDeleted : undefined
 
   const websocketUrl = configuredWsUrl || (apiBaseUrl.replace(/^http/, 'ws') + '/ws')
   let closedByClient = false
@@ -465,6 +473,9 @@ export async function openConversationSocket(
           }
           if (payload.type === 'user_profile_updated' && onUserProfileUpdated) {
             onUserProfileUpdated(payload as unknown as UserProfileUpdatedEvent)
+          }
+          if (payload.type === 'conversation_deleted' && onConversationDeleted) {
+            onConversationDeleted({ conversation_id: (payload as any).conversation_id as string })
           }
         } catch {
           // Ignore malformed server events; REST remains the source of truth.

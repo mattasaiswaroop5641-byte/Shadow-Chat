@@ -244,3 +244,56 @@ def test_sender_id_derived_from_authenticated_user_only() -> None:
     assert not hasattr(payload, "sender_id")
     assert not hasattr(payload, "sender")
 
+
+def test_delete_conversation_owner_or_direct_deletes_all() -> None:
+    from app.routes.conversations import delete_conversation
+
+    conv_oid = ObjectId()
+    user_oid = ObjectId()
+
+    deleted = {"conversations": False, "memberships": False, "messages": False}
+
+    class MockConversations:
+        async def find_one(self, query: dict) -> dict:
+            return {"_id": conv_oid, "owner_id": user_oid, "kind": "group"}
+
+        async def delete_one(self, query: dict) -> None:
+            deleted["conversations"] = True
+
+    class MockMemberships:
+        async def find_one(self, query: dict) -> dict:
+            return {"conversation_id": conv_oid, "user_id": user_oid}
+
+        async def delete_many(self, query: dict) -> None:
+            deleted["memberships"] = True
+
+    class MockMessages:
+        async def delete_many(self, query: dict) -> None:
+            deleted["messages"] = True
+
+    class MockDatabase:
+        conversations = MockConversations()
+        conversation_memberships = MockMemberships()
+        messages = MockMessages()
+
+    user = UserReply(
+        id=str(user_oid),
+        email="owner@example.com",
+        username="owner",
+        created_at=datetime.now(timezone.utc),
+        email_verified=True,
+    )
+
+    asyncio.run(
+        delete_conversation(
+            raw_id=str(conv_oid),
+            user=user,
+            database=MockDatabase(),
+        )
+    )
+
+    assert deleted["conversations"] is True
+    assert deleted["memberships"] is True
+    assert deleted["messages"] is True
+
+

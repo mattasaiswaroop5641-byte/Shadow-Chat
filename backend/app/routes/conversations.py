@@ -330,6 +330,47 @@ async def get_conversation(
     return serialize_conversation(conversation, recipient_info=recipient_info)
 
 
+@router.delete("/{raw_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    raw_id: str = Path(..., min_length=1, max_length=24),
+    user: UserReply = Depends(verified_user),
+    database: AsyncIOMotorDatabase = Depends(get_database),
+) -> None:
+    conversation = await get_member_conversation(raw_id, user, database)
+    conv_oid = conversation["_id"]
+    is_owner = str(conversation.get("owner_id")) == user.id
+
+    if is_owner or conversation.get("kind") == "direct":
+        if hasattr(database, "conversations"):
+            await database.conversations.delete_one({"_id": conv_oid})
+        if hasattr(database, "conversation_memberships"):
+            await database.conversation_memberships.delete_many({"conversation_id": conv_oid})
+        if hasattr(database, "messages"):
+            await database.messages.delete_many({"conversation_id": conv_oid})
+        try:
+            await publish(f"conversation:{raw_id}", {
+                "type": "conversation_deleted",
+                "conversation_id": raw_id,
+            })
+        except Exception:
+            pass
+    else:
+        if hasattr(database, "conversation_memberships"):
+            await database.conversation_memberships.delete_one({
+                "conversation_id": conv_oid,
+                "user_id": ObjectId(user.id),
+            })
+        try:
+            await publish(f"conversation:{raw_id}", {
+                "type": "member_left",
+                "conversation_id": raw_id,
+                "user_id": user.id,
+                "username": user.username,
+            })
+        except Exception:
+            pass
+
+
 @router.post("/{raw_id}/members", response_model=MemberReply, status_code=status.HTTP_201_CREATED)
 async def add_member(
     payload: AddMemberRequest,
