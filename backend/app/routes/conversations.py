@@ -35,6 +35,10 @@ class ConversationReply(BaseModel):
     kind: Literal["direct", "group"]
     owner_id: str
     title: str | None = None
+    recipient_id: str | None = None
+    recipient_username: str | None = None
+    recipient_avatar_url: str | None = None
+    recipient_status_message: str | None = None
     invite_policy: Literal["all_members", "owner_only"] = "all_members"
     created_at: datetime
     updated_at: datetime
@@ -54,14 +58,28 @@ class MemberReply(BaseModel):
     created_at: datetime
     public_key: str | None = None
     is_online: bool = False
+    avatar_url: str | None = None
+    status_message: str | None = None
 
 
-def serialize_conversation(document: dict[str, Any]) -> ConversationReply:
+def serialize_conversation(
+    document: dict[str, Any],
+    recipient_info: dict[str, Any] | None = None,
+) -> ConversationReply:
+    rec_info = recipient_info or document.get("recipient_info") or {}
+    title = document.get("title")
+    if document.get("kind") == "direct" and not title and rec_info.get("recipient_username"):
+        title = f"@{rec_info['recipient_username']}"
+
     return ConversationReply(
         id=str(document["_id"]),
         kind=document["kind"],
         owner_id=str(document["owner_id"]),
-        title=document.get("title"),
+        title=title,
+        recipient_id=rec_info.get("recipient_id"),
+        recipient_username=rec_info.get("recipient_username"),
+        recipient_avatar_url=rec_info.get("recipient_avatar_url"),
+        recipient_status_message=rec_info.get("recipient_status_message"),
         invite_policy=document.get("invite_policy", "all_members"),
         created_at=document["created_at"],
         updated_at=document["updated_at"],
@@ -99,6 +117,7 @@ async def create_conversation(
 ) -> ConversationReply:
     now = datetime.now(timezone.utc)
     members_to_add: list[ObjectId] = []
+    recipient_info: dict[str, Any] | None = None
 
     if payload.kind == "direct":
         recipient_id = payload.recipient_id
@@ -119,6 +138,7 @@ async def create_conversation(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot create a direct conversation with yourself",
             )
+        recipient = None
         if hasattr(database, "users"):
             recipient = await database.users.find_one({"_id": ObjectId(recipient_id)})
             if recipient is None:
@@ -126,6 +146,12 @@ async def create_conversation(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Recipient not found",
                 )
+            recipient_info = {
+                "recipient_id": str(recipient["_id"]),
+                "recipient_username": recipient.get("username"),
+                "recipient_avatar_url": recipient.get("avatar_url"),
+                "recipient_status_message": recipient.get("status_message"),
+            }
 
         if hasattr(database, "conversation_memberships") and hasattr(database.conversation_memberships, "find"):
             try:
@@ -147,7 +173,7 @@ async def create_conversation(
                         if existing_m is not None:
                             existing_conv = await database.conversations.find_one({"_id": existing_m["conversation_id"]})
                             if existing_conv is not None:
-                                return serialize_conversation(existing_conv)
+                                return serialize_conversation(existing_conv, recipient_info=recipient_info)
             except Exception:
                 pass
         members_to_add.append(ObjectId(recipient_id))
@@ -220,7 +246,7 @@ async def create_conversation(
         raise
 
     conversation["_id"] = conversation_id_value
-    return serialize_conversation(conversation)
+    return serialize_conversation(conversation, recipient_info=recipient_info)
 
 
 @router.get("", response_model=list[ConversationReply])
@@ -239,7 +265,41 @@ async def list_conversations(
     conv_cursor = database.conversations.find({"_id": {"$in": ids}})
     conversations = await conv_cursor.to_list(length=100) if hasattr(conv_cursor, "to_list") else await conv_cursor
     by_id = {document["_id"]: document for document in conversations}
-    return [serialize_conversation(by_id[item]) for item in ids if item in by_id]
+
+    direct_conv_ids = [doc["_id"] for doc in conversations if doc.get("kind") == "direct"]
+    direct_partners: dict[Any, dict[str, Any]] = {}
+    if direct_conv_ids and hasattr(database, "conversation_memberships") and hasattr(database.conversation_memberships, "find"):
+        try:
+            other_m_cursor = database.conversation_memberships.find({
+                "conversation_id": {"$in": direct_conv_ids},
+                "user_id": {"$ne": ObjectId(user.id)},
+            })
+            other_memberships = await other_m_cursor.to_list(length=len(direct_conv_ids) * 2) if hasattr(other_m_cursor, "to_list") else await other_m_cursor
+            partner_user_ids = [m["user_id"] for m in other_memberships]
+            if partner_user_ids and hasattr(database, "users") and hasattr(database.users, "find"):
+                u_cursor = database.users.find(
+                    {"_id": {"$in": partner_user_ids}},
+                    {"_id": 1, "username": 1, "avatar_url": 1, "status_message": 1},
+                )
+                partner_users = await u_cursor.to_list(length=len(partner_user_ids)) if hasattr(u_cursor, "to_list") else await u_cursor
+                users_map = {u["_id"]: u for u in partner_users}
+                for m in other_memberships:
+                    u = users_map.get(m["user_id"])
+                    if u:
+                        direct_partners[m["conversation_id"]] = {
+                            "recipient_id": str(u["_id"]),
+                            "recipient_username": u.get("username"),
+                            "recipient_avatar_url": u.get("avatar_url"),
+                            "recipient_status_message": u.get("status_message"),
+                        }
+        except Exception:
+            pass
+
+    return [
+        serialize_conversation(by_id[item], recipient_info=direct_partners.get(item))
+        for item in ids
+        if item in by_id
+    ]
 
 
 @router.get("/{raw_id}", response_model=ConversationReply)
@@ -249,7 +309,25 @@ async def get_conversation(
     database: AsyncIOMotorDatabase = Depends(get_database),
 ) -> ConversationReply:
     conversation = await get_member_conversation(raw_id, user, database)
-    return serialize_conversation(conversation)
+    recipient_info = None
+    if conversation.get("kind") == "direct" and hasattr(database, "conversation_memberships"):
+        try:
+            other_m = await database.conversation_memberships.find_one({
+                "conversation_id": conversation["_id"],
+                "user_id": {"$ne": ObjectId(user.id)},
+            })
+            if other_m and hasattr(database, "users"):
+                u = await database.users.find_one({"_id": other_m["user_id"]})
+                if u:
+                    recipient_info = {
+                        "recipient_id": str(u["_id"]),
+                        "recipient_username": u.get("username"),
+                        "recipient_avatar_url": u.get("avatar_url"),
+                        "recipient_status_message": u.get("status_message"),
+                    }
+        except Exception:
+            pass
+    return serialize_conversation(conversation, recipient_info=recipient_info)
 
 
 @router.post("/{raw_id}/members", response_model=MemberReply, status_code=status.HTTP_201_CREATED)
@@ -368,7 +446,8 @@ async def list_members(
     memberships = await cursor.to_list(length=1000) if hasattr(cursor, "to_list") else await cursor
     user_ids = [m["user_id"] for m in memberships]
     users_cursor = database.users.find(
-        {"_id": {"$in": user_ids}}, {"_id": 1, "username": 1, "public_key": 1}
+        {"_id": {"$in": user_ids}},
+        {"_id": 1, "username": 1, "public_key": 1, "avatar_url": 1, "status_message": 1},
     )
     users = await users_cursor.to_list(length=len(user_ids)) if hasattr(users_cursor, "to_list") else await users_cursor
     users_by_id: dict[Any, Any] = {}
@@ -394,6 +473,16 @@ async def list_members(
                 else getattr(users_by_id.get(m["user_id"]), "public_key", None)
             ),
             is_online=is_user_online(m["user_id"]),
+            avatar_url=(
+                users_by_id.get(m["user_id"], {}).get("avatar_url")
+                if isinstance(users_by_id.get(m["user_id"]), dict)
+                else getattr(users_by_id.get(m["user_id"]), "avatar_url", None)
+            ),
+            status_message=(
+                users_by_id.get(m["user_id"], {}).get("status_message")
+                if isinstance(users_by_id.get(m["user_id"]), dict)
+                else getattr(users_by_id.get(m["user_id"]), "status_message", None)
+            ),
         )
         for m in memberships
     ]

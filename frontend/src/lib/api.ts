@@ -12,6 +12,7 @@ import type {
   TokenReply,
   TypingEvent,
   User,
+  UserProfileUpdatedEvent,
   UserSummary,
 } from '../types'
 
@@ -354,6 +355,25 @@ export function getUsersPresence(userIds: string[]): Promise<Record<string, bool
   )
 }
 
+export function updateUserProfile(profile: {
+  avatar_url?: string | null
+  status_message?: string | null
+}): Promise<User> {
+  return request<User>('/users/me/profile', {
+    method: 'PUT',
+    body: JSON.stringify(profile),
+  })
+}
+
+export function uploadAvatar(file: File): Promise<User> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request<User>('/users/me/avatar', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
 export type SocketHandlers = {
   onMessage: (message: Message) => void
   onStatus: (status: 'connected' | 'disconnected') => void
@@ -365,6 +385,7 @@ export type SocketHandlers = {
   onMessageReaction?: (event: MessageReactionEvent) => void
   onMessageEdited?: (event: MessageEditedEvent) => void
   onMessageDeleted?: (event: MessageDeletedEvent) => void
+  onUserProfileUpdated?: (event: UserProfileUpdatedEvent) => void
 }
 
 export async function openConversationSocket(
@@ -387,6 +408,7 @@ export async function openConversationSocket(
   const onMessageReaction = typeof handlers === 'object' ? handlers.onMessageReaction : undefined
   const onMessageEdited = typeof handlers === 'object' ? handlers.onMessageEdited : undefined
   const onMessageDeleted = typeof handlers === 'object' ? handlers.onMessageDeleted : undefined
+  const onUserProfileUpdated = typeof handlers === 'object' ? handlers.onUserProfileUpdated : undefined
 
   const websocketUrl = configuredWsUrl || (apiBaseUrl.replace(/^http/, 'ws') + '/ws')
   let closedByClient = false
@@ -440,6 +462,9 @@ export async function openConversationSocket(
           }
           if (payload.type === 'message_deleted' && onMessageDeleted) {
             onMessageDeleted(payload as unknown as MessageDeletedEvent)
+          }
+          if (payload.type === 'user_profile_updated' && onUserProfileUpdated) {
+            onUserProfileUpdated(payload as unknown as UserProfileUpdatedEvent)
           }
         } catch {
           // Ignore malformed server events; REST remains the source of truth.

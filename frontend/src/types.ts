@@ -33,6 +33,8 @@ export type User = {
   username: string
   created_at: string
   email_verified: boolean
+  avatar_url?: string | null
+  status_message?: string | null
 }
 
 export type TokenReply = {
@@ -46,6 +48,10 @@ export type Conversation = {
   kind: 'direct' | 'group'
   owner_id: string
   title?: string
+  recipient_id?: string | null
+  recipient_username?: string | null
+  recipient_avatar_url?: string | null
+  recipient_status_message?: string | null
   created_at: string
   updated_at: string
 }
@@ -64,6 +70,8 @@ export type ConversationMember = {
   created_at: string
   public_key?: string | null
   is_online?: boolean
+  avatar_url?: string | null
+  status_message?: string | null
 }
 
 export type Attachment = {
@@ -144,6 +152,14 @@ export type MessageDeletedEvent = {
   type: 'message_deleted'
   conversation_id: string
   message_id: string
+}
+
+export type UserProfileUpdatedEvent = {
+  type: 'user_profile_updated'
+  user_id: string
+  username: string
+  avatar_url?: string | null
+  status_message?: string | null
 }
 
 

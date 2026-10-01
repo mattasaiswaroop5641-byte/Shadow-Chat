@@ -56,7 +56,11 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         content_length = request.headers.get("content-length")
-        max_bytes = 15728640 if "/attachments" in request.url.path else settings.max_request_body_bytes
+        max_bytes = (
+            15728640
+            if ("/attachments" in request.url.path or "/avatar" in request.url.path)
+            else settings.max_request_body_bytes
+        )
         if content_length and int(content_length) > max_bytes:
             return JSONResponse(status_code=413, content={"detail": "Request body is too large"})
         return await call_next(request)

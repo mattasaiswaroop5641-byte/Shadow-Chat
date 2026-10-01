@@ -32,7 +32,9 @@ import {
   sendMessage,
   setSessionExpiredHandler,
   toggleReaction,
+  updateUserProfile,
   uploadAttachment,
+  uploadAvatar,
   uploadPublicKey,
   verifyEmail,
 } from './lib/api'
@@ -206,6 +208,66 @@ function AuthPanel({ onAuthenticated }: { onAuthenticated: (user: User) => void 
   )
 }
 
+function UserAvatar({
+  username,
+  avatarUrl,
+  size = 'md',
+  isOnline,
+}: {
+  username: string
+  avatarUrl?: string | null
+  size?: 'sm' | 'md' | 'lg'
+  isOnline?: boolean
+}) {
+  const sizeClasses = {
+    sm: 'h-6 w-6 text-[10px]',
+    md: 'h-8 w-8 text-xs',
+    lg: 'h-12 w-12 text-base',
+  }[size]
+
+  const initial = (username || '?').charAt(0).toUpperCase()
+  const gradients = [
+    'from-emerald-500 to-teal-700',
+    'from-indigo-500 to-purple-700',
+    'from-cyan-500 to-blue-700',
+    'from-rose-500 to-pink-700',
+    'from-amber-500 to-orange-700',
+  ]
+  const charCode = username ? username.charCodeAt(0) : 0
+  const gradient = gradients[charCode % gradients.length]
+  const fullAvatarUrl = avatarUrl ? getAttachmentFileUrl(avatarUrl) : null
+
+  return (
+    <div className="relative inline-flex flex-shrink-0">
+      {fullAvatarUrl ? (
+        <img
+          src={fullAvatarUrl}
+          alt={username}
+          className={`${sizeClasses} rounded-full object-cover border border-slate-700/80 shadow-inner`}
+        />
+      ) : (
+        <div
+          className={`${sizeClasses} rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center font-bold text-white shadow-inner uppercase tracking-wider`}
+        >
+          {initial}
+        </div>
+      )}
+      {typeof isOnline === 'boolean' ? (
+        <span
+          className={`absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-[#0b1020] ${
+            size === 'sm' ? 'h-2 w-2' : size === 'lg' ? 'h-3.5 w-3.5' : 'h-2.5 w-2.5'
+          } ${
+            isOnline
+              ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
+              : 'bg-slate-600'
+          }`}
+          title={isOnline ? 'Online' : 'Offline'}
+        />
+      ) : null}
+    </div>
+  )
+}
+
 export default function App() {
   const [backendStatus, setBackendStatus] = useState('Checking')
   const [user, setUser] = useState<User | null>(null)
@@ -275,6 +337,16 @@ export default function App() {
   const [editDraft, setEditDraft] = useState('')
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // User Profile Settings State
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState('')
+  const [profileStatusMessage, setProfileStatusMessage] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileUploadingAvatar, setProfileUploadingAvatar] = useState(false)
+  const [profileError, setProfileError] = useState('')
+  const [profileSuccess, setProfileSuccess] = useState('')
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   const selectedConversation = conversations.find((c) => c.id === selectedConversationId) || null
 
@@ -589,6 +661,38 @@ export default function App() {
             ),
           )
         }
+      },
+      onUserProfileUpdated: (event) => {
+        if (!active) return
+        if (user && event.user_id === user.id) {
+          setUser((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  avatar_url: event.avatar_url,
+                  status_message: event.status_message,
+                }
+              : null,
+          )
+        }
+        setMembers((current) =>
+          current.map((m) =>
+            m.user_id === event.user_id
+              ? { ...m, avatar_url: event.avatar_url, status_message: event.status_message }
+              : m,
+          ),
+        )
+        setConversations((current) =>
+          current.map((c) =>
+            c.recipient_id === event.user_id
+              ? {
+                  ...c,
+                  recipient_avatar_url: event.avatar_url,
+                  recipient_status_message: event.status_message,
+                }
+              : c,
+          ),
+        )
       },
     }).then((control) => {
       if (!active) {
@@ -920,6 +1024,56 @@ export default function App() {
     }
   }
 
+  function openProfileModal() {
+    if (!user) return
+    setProfileAvatarUrl(user.avatar_url || '')
+    setProfileStatusMessage(user.status_message || '')
+    setProfileError('')
+    setProfileSuccess('')
+    setProfileModalOpen(true)
+  }
+
+  async function handleSaveProfile(e: FormEvent) {
+    e.preventDefault()
+    if (!user) return
+    setProfileSaving(true)
+    setProfileError('')
+    setProfileSuccess('')
+    try {
+      const updated = await updateUserProfile({
+        avatar_url: profileAvatarUrl.trim() || null,
+        status_message: profileStatusMessage.trim() || null,
+      })
+      setUser(updated)
+      setProfileSuccess('Profile updated successfully!')
+      setTimeout(() => setProfileModalOpen(false), 1200)
+    } catch (error) {
+      setProfileError(error instanceof ApiError ? error.message : 'Unable to update profile.')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  async function handleAvatarUpload(file: File) {
+    if (!user) return
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileError('Avatar image must be smaller than 5MB')
+      return
+    }
+    setProfileUploadingAvatar(true)
+    setProfileError('')
+    try {
+      const updated = await uploadAvatar(file)
+      setUser(updated)
+      setProfileAvatarUrl(updated.avatar_url || '')
+      setProfileSuccess('Avatar uploaded successfully!')
+    } catch (error) {
+      setProfileError(error instanceof ApiError ? error.message : 'Failed to upload avatar.')
+    } finally {
+      setProfileUploadingAvatar(false)
+    }
+  }
+
   function handleDraftChange(value: string) {
     setDraft(value)
     if (!selectedConversationId) return
@@ -956,8 +1110,14 @@ export default function App() {
   const directPartnerMember = selectedConversation?.kind === 'direct'
     ? members.find((m) => m.user_id !== user.id)
     : null
-  const directPartner = directPartnerMember?.username || null
-  const isDirectPartnerOnline = directPartnerMember ? onlineUserIds.has(directPartnerMember.user_id) : false
+  const directPartner = directPartnerMember?.username || selectedConversation?.recipient_username || null
+  const directPartnerAvatarUrl = directPartnerMember?.avatar_url ?? selectedConversation?.recipient_avatar_url ?? null
+  const directPartnerStatus = directPartnerMember?.status_message ?? selectedConversation?.recipient_status_message ?? null
+  const isDirectPartnerOnline = directPartnerMember
+    ? onlineUserIds.has(directPartnerMember.user_id)
+    : selectedConversation?.recipient_id
+    ? onlineUserIds.has(selectedConversation.recipient_id)
+    : false
 
   const activeTypingNames = Object.values(typingUsers)
     .filter((u) => Date.now() < u.expiresAt)
@@ -1049,48 +1209,79 @@ export default function App() {
             <div className="space-y-2">
               {conversationLoading ? <p className="text-sm text-slate-500">Loading conversations...</p> : null}
               {!conversationLoading && conversations.length === 0 ? <p className="text-sm text-slate-500">No conversations yet.</p> : null}
-              {conversations.map((conversation) => (
-                <button
-                  key={conversation.id}
-                  onClick={() => setSelectedConversationId(conversation.id)}
-                  type="button"
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    conversation.id === selectedConversationId ? 'bg-slate-800 text-white font-medium' : 'text-slate-300 hover:bg-slate-900'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] uppercase font-semibold ${
-                      conversation.kind === 'direct' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    }`}>
-                      {conversation.kind === 'direct' ? 'DM' : 'GRP'}
-                    </span>
-                    <span className="truncate">
-                      {conversation.title || `#${conversation.kind} ${conversation.id.slice(-6)}`}
-                    </span>
-                  </div>
-                </button>
-              ))}
+              {conversations.map((conversation) => {
+                const isSelected = conversation.id === selectedConversationId
+                const isDirect = conversation.kind === 'direct'
+                const partnerName = conversation.recipient_username || (conversation.title ? conversation.title.replace(/^@/, '') : null)
+                const isPartnerOnline = conversation.recipient_id ? onlineUserIds.has(conversation.recipient_id) : false
+
+                return (
+                  <button
+                    key={conversation.id}
+                    onClick={() => setSelectedConversationId(conversation.id)}
+                    type="button"
+                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-sm transition ${
+                      isSelected ? 'bg-slate-800 text-white font-medium shadow-sm' : 'text-slate-300 hover:bg-slate-900/80'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1 text-left">
+                      {isDirect ? (
+                        <UserAvatar
+                          username={partnerName || 'User'}
+                          avatarUrl={conversation.recipient_avatar_url}
+                          size="sm"
+                          isOnline={isPartnerOnline}
+                        />
+                      ) : (
+                        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-[11px] font-bold text-emerald-400 border border-emerald-500/30">
+                          #
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-xs font-semibold text-slate-200">
+                            {isDirect
+                              ? (partnerName ? `@${partnerName}` : `Direct ${conversation.id.slice(-6)}`)
+                              : (conversation.title || `Group ${conversation.id.slice(-6)}`)}
+                          </span>
+                        </div>
+                        {isDirect && conversation.recipient_status_message ? (
+                          <p className="truncate text-[10px] text-slate-400 font-normal">
+                            {conversation.recipient_status_message}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
               {conversationError ? <p className="text-sm text-rose-300">{conversationError}</p> : null}
             </div>
           </div>
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col bg-[#0b1220]">
-          <header className="flex items-center justify-between border-b border-slate-800 bg-[#0d1424]/80 px-6 py-4 backdrop-blur-sm">
-            <div className="flex items-center gap-3">
+          <header className="flex items-center justify-between border-b border-slate-800 bg-[#0d1424]/80 px-6 py-3 backdrop-blur-sm">
+            <div className="flex items-center gap-3 min-w-0">
               {selectedConversation ? (
-                <span className={`rounded-md px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${
-                  selectedConversation.kind === 'direct'
-                    ? 'border border-indigo-500/30 bg-indigo-500/10 text-indigo-300'
-                    : 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                }`}>
-                  {selectedConversation.kind}
-                </span>
+                selectedConversation.kind === 'direct' ? (
+                  <UserAvatar
+                    username={directPartner || 'User'}
+                    avatarUrl={directPartnerAvatarUrl}
+                    size="md"
+                    isOnline={isDirectPartnerOnline}
+                  />
+                ) : (
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-sm">
+                    #
+                  </div>
+                )
               ) : null}
-              <div>
-                <h1 className="text-xl font-semibold text-white flex items-center gap-2.5">
-                  <span>{activeChannelTitle}</span>
-                  {selectedConversation?.kind === 'direct' && directPartnerMember ? (
+
+              <div className="min-w-0">
+                <h1 className="text-base font-semibold text-white flex items-center gap-2">
+                  <span className="truncate">{activeChannelTitle}</span>
+                  {selectedConversation?.kind === 'direct' ? (
                     <span className="inline-flex items-center gap-1.5 text-xs font-normal">
                       <span
                         className={`h-2 w-2 rounded-full ${
@@ -1099,11 +1290,7 @@ export default function App() {
                             : 'bg-slate-600'
                         }`}
                       />
-                      <span
-                        className={
-                          isDirectPartnerOnline ? 'text-emerald-400 text-xs' : 'text-slate-500 text-xs'
-                        }
-                      >
+                      <span className={isDirectPartnerOnline ? 'text-emerald-400 text-xs' : 'text-slate-500 text-xs'}>
                         {isDirectPartnerOnline ? 'Online' : 'Offline'}
                       </span>
                     </span>
@@ -1114,9 +1301,15 @@ export default function App() {
                   ) : null}
                 </h1>
                 {selectedConversation ? (
-                  <p className="text-xs text-slate-400">
-                    ID: {selectedConversation.id.slice(-8)}
-                  </p>
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    {selectedConversation.kind === 'direct' && directPartnerStatus ? (
+                      <span className="truncate max-w-sm text-slate-300 font-normal">
+                        {directPartnerStatus}
+                      </span>
+                    ) : (
+                      <span>ID: {selectedConversation.id.slice(-8)}</span>
+                    )}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -1172,11 +1365,31 @@ export default function App() {
                 {socketStatus === 'connected' ? 'Live connected' : 'Live reconnecting'}
               </span>
 
+              {/* User Profile Pill button */}
               <div className="flex items-center gap-2 border-l border-slate-800 pl-3">
-                <span className="text-sm font-medium text-slate-300">{user.username}</span>
                 <button
                   type="button"
-                  className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                  onClick={openProfileModal}
+                  title="Click to view & edit your profile"
+                  className="flex items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-900/80 px-2.5 py-1 text-left transition hover:border-emerald-500/40 hover:bg-slate-800 cursor-pointer"
+                >
+                  <UserAvatar
+                    username={user.username}
+                    avatarUrl={user.avatar_url}
+                    size="sm"
+                    isOnline={true}
+                  />
+                  <div className="hidden sm:block text-left">
+                    <span className="block text-xs font-semibold text-slate-200">@{user.username}</span>
+                    <span className="block max-w-[110px] truncate text-[10px] text-slate-400">
+                      {user.status_message || 'Set status'}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-400">⚙️</span>
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-800 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-700 hover:bg-slate-800 hover:text-slate-200 transition cursor-pointer"
                   onClick={async () => {
                     await logout()
                     setUser(null)
@@ -1304,8 +1517,16 @@ export default function App() {
                           </div>
                         ) : null}
 
-                        <div className="mb-1 flex items-center justify-between gap-4 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                          <span className="font-semibold text-slate-300">{senderLabel}</span>
+                        <div className="mb-1 flex items-center justify-between gap-4 text-[11px] text-slate-400">
+                          <div className="flex items-center gap-1.5">
+                            <UserAvatar
+                              username={isSelf ? user.username : (senderMember?.username || 'User')}
+                              avatarUrl={isSelf ? user.avatar_url : senderMember?.avatar_url}
+                              size="sm"
+                              isOnline={senderMember ? onlineUserIds.has(senderMember.user_id) : isSelf ? true : undefined}
+                            />
+                            <span className="font-semibold text-slate-300 uppercase tracking-[0.18em] text-[11px]">{senderLabel}</span>
+                          </div>
                           <span className="flex items-center gap-1.5 lowercase">
                             {isEdited && !isDeleted ? (
                               <span className="text-[10px] text-slate-500 font-normal italic tracking-normal">(edited)</span>
@@ -1586,25 +1807,27 @@ export default function App() {
                   {members.map((member) => (
                     <div
                       key={member.id}
-                      className="flex items-center justify-between rounded-lg bg-slate-900/70 px-3 py-2 text-xs"
+                      className="flex items-center justify-between rounded-xl bg-slate-900/70 p-2.5 text-xs border border-slate-800/60"
                     >
-                      <div className="flex items-center gap-2.5 truncate">
-                        <div className="relative">
-                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-bold text-slate-300">
-                            {member.username.charAt(0).toUpperCase()}
-                          </span>
-                          <span
-                            className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[#101827] ${
-                              onlineUserIds.has(member.user_id) ? 'bg-emerald-400' : 'bg-slate-600'
-                            }`}
-                            title={onlineUserIds.has(member.user_id) ? 'Online' : 'Offline'}
-                          />
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <UserAvatar
+                          username={member.username}
+                          avatarUrl={member.avatar_url}
+                          size="sm"
+                          isOnline={onlineUserIds.has(member.user_id)}
+                        />
+                        <div className="truncate min-w-0 flex-1 text-left">
+                          <p className="truncate text-slate-200 font-medium">
+                            @{member.username} {member.user_id === user.id ? '(You)' : ''}
+                          </p>
+                          {member.status_message ? (
+                            <p className="truncate text-[10px] text-slate-400">
+                              {member.status_message}
+                            </p>
+                          ) : null}
                         </div>
-                        <span className="truncate text-slate-200">
-                          {member.username} {member.user_id === user.id ? '(You)' : ''}
-                        </span>
                       </div>
-                      <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ${
+                      <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ml-2 flex-shrink-0 ${
                         member.role === 'owner' ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-800 text-slate-400'
                       }`}>
                         {member.role}
@@ -1924,6 +2147,193 @@ export default function App() {
               alt="Attachment preview"
               className="max-h-[85vh] max-w-[85vw] rounded-xl object-contain shadow-2xl border border-slate-700"
             />
+          </div>
+        </div>
+      ) : null}
+
+      {/* User Profile Settings Modal */}
+      {profileModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-[#101827] p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">👤</span>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Profile Settings</h2>
+                  <p className="text-xs text-slate-400">Manage your avatar, status, and identity</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProfileModalOpen(false)}
+                className="text-slate-400 hover:text-white text-base"
+              >
+                ✕
+              </button>
+            </div>
+
+            {profileSuccess ? (
+              <p className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                {profileSuccess}
+              </p>
+            ) : null}
+            {profileError ? (
+              <p className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                {profileError}
+              </p>
+            ) : null}
+
+            <form onSubmit={handleSaveProfile} className="mt-5 space-y-5">
+              {/* Avatar Preview & Upload */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                  Avatar
+                </label>
+                <div className="flex items-center gap-4">
+                  <UserAvatar
+                    username={user.username}
+                    avatarUrl={profileAvatarUrl}
+                    size="lg"
+                    isOnline={true}
+                  />
+                  <div className="space-y-2 flex-1">
+                    <input
+                      type="file"
+                      ref={avatarInputRef}
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          void handleAvatarUpload(file)
+                          e.target.value = ''
+                        }
+                      }}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={profileUploadingAvatar}
+                        onClick={() => avatarInputRef.current?.click()}
+                        className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition"
+                      >
+                        {profileUploadingAvatar ? 'Uploading...' : 'Upload Image'}
+                      </button>
+                      {profileAvatarUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => setProfileAvatarUrl('')}
+                          className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:text-rose-300 transition"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="text-[11px] text-slate-500">Max size 5MB (PNG, JPG, WebP, GIF)</p>
+                  </div>
+                </div>
+
+                {/* Avatar Presets */}
+                <div className="mt-3">
+                  <p className="text-[11px] text-slate-400 mb-1.5">Or choose a preset style:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { name: 'Ninja', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=ninja' },
+                      { name: 'Agent', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=agent' },
+                      { name: 'Cyber', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=cyber' },
+                      { name: 'Shadow', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=shadow' },
+                      { name: 'Ghost', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=ghost' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => setProfileAvatarUrl(preset.url)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs transition ${
+                          profileAvatarUrl === preset.url
+                            ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
+                            : 'border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        {preset.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Message */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Custom Status Message
+                </label>
+                <input
+                  type="text"
+                  maxLength={140}
+                  value={profileStatusMessage}
+                  onChange={(e) => setProfileStatusMessage(e.target.value)}
+                  placeholder="e.g. ⚡ Coding in stealth mode"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none"
+                />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[
+                    '⚡ Active & coding',
+                    '🥷 In stealth mode',
+                    '☕ AFK',
+                    '🎧 Focused with tunes',
+                    '🚀 Shipping features',
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setProfileStatusMessage(preset)}
+                      className="rounded-full border border-slate-800 bg-slate-900/60 px-2.5 py-0.5 text-[11px] text-slate-400 hover:border-slate-700 hover:text-slate-200 transition"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Account Overview */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-2 text-xs">
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">Username:</span>
+                  <span className="font-semibold text-white">@{user.username}</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">Email:</span>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-200">
+                    {user.email}
+                    <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 text-[10px] text-emerald-400 border border-emerald-500/30">
+                      ✓ Verified
+                    </span>
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">E2EE Identity:</span>
+                  <span className="text-teal-400 font-mono text-[11px]">
+                    {myPublicKeySpki ? 'SPKI Key Active' : 'Generating...'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setProfileModalOpen(false)}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  className="rounded-lg bg-emerald-500 px-5 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition"
+                >
+                  {profileSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

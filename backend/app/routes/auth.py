@@ -83,6 +83,8 @@ class UserReply(BaseModel):
     username: str
     created_at: datetime
     email_verified: bool
+    avatar_url: str | None = None
+    status_message: str | None = None
 
 
 def serialize_user(user: dict[str, Any]) -> UserReply:
@@ -92,6 +94,8 @@ def serialize_user(user: dict[str, Any]) -> UserReply:
         username=user["username"],
         created_at=user["created_at"],
         email_verified=user.get("email_verified", False),
+        avatar_url=user.get("avatar_url"),
+        status_message=user.get("status_message"),
     )
 
 
