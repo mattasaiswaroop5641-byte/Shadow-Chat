@@ -1,9 +1,18 @@
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+
+
+def get_uploads_dir() -> Path:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    return UPLOADS_DIR
+
 
 
 class Settings:

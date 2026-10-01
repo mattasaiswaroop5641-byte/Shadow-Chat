@@ -1,8 +1,12 @@
 import type {
+  Attachment,
   Conversation,
   ConversationMember,
   Message,
+  MessageDeletedEvent,
   MessageDeliveredEvent,
+  MessageEditedEvent,
+  MessageReactionEvent,
   PresenceEvent,
   ReadReceiptEvent,
   TokenReply,
@@ -63,7 +67,9 @@ async function parseError(response: Response): Promise<ApiError> {
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const headers = new Headers(init.headers)
-  headers.set('Content-Type', 'application/json')
+  if (!(init.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json')
+  }
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
 
   let response: Response
@@ -245,11 +251,76 @@ export function sendMessage(
   content: string,
   nonce?: string | null,
   is_encrypted?: boolean,
+  reply_to_id?: string | null,
+  attachments?: Attachment[],
 ): Promise<Message> {
   return request<Message>(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ content, nonce, is_encrypted: Boolean(is_encrypted) }),
+    body: JSON.stringify({
+      content,
+      nonce,
+      is_encrypted: Boolean(is_encrypted),
+      reply_to_id: reply_to_id || undefined,
+      attachments: attachments && attachments.length > 0 ? attachments : undefined,
+    }),
   })
+}
+
+export function uploadAttachment(conversationId: string, file: File): Promise<Attachment> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request<Attachment>(
+    `/conversations/${encodeURIComponent(conversationId)}/messages/attachments`,
+    {
+      method: 'POST',
+      body: formData,
+    },
+  )
+}
+
+export function getAttachmentFileUrl(path: string): string {
+  if (!path) return ''
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return `${apiBaseUrl}${path.startsWith('/') ? '' : '/'}${path}`
+}
+
+export function toggleReaction(
+  conversationId: string,
+  messageId: string,
+  emoji: string,
+): Promise<Record<string, string[]>> {
+  return request<Record<string, string[]>>(
+    `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/reactions`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ emoji }),
+    },
+  )
+}
+
+export function editMessage(
+  conversationId: string,
+  messageId: string,
+  content: string,
+  nonce?: string | null,
+  is_encrypted?: boolean,
+): Promise<Message> {
+  return request<Message>(
+    `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ content, nonce, is_encrypted: Boolean(is_encrypted) }),
+    },
+  )
+}
+
+export function deleteMessage(conversationId: string, messageId: string): Promise<void> {
+  return request<void>(
+    `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'DELETE',
+    },
+  )
 }
 
 export function uploadPublicKey(publicKey: string): Promise<void> {
@@ -269,7 +340,6 @@ export async function getUserPublicKey(userId: string): Promise<string | null> {
     return null
   }
 }
-
 
 export function markMessagesRead(conversationId: string): Promise<void> {
   return request<void>(`/conversations/${encodeURIComponent(conversationId)}/messages/read`, {
@@ -292,6 +362,9 @@ export type SocketHandlers = {
   onReadReceipt?: (event: ReadReceiptEvent) => void
   onMessageDelivered?: (event: MessageDeliveredEvent) => void
   onPresence?: (event: PresenceEvent) => void
+  onMessageReaction?: (event: MessageReactionEvent) => void
+  onMessageEdited?: (event: MessageEditedEvent) => void
+  onMessageDeleted?: (event: MessageDeletedEvent) => void
 }
 
 export async function openConversationSocket(
@@ -311,6 +384,9 @@ export async function openConversationSocket(
   const onReadReceipt = typeof handlers === 'object' ? handlers.onReadReceipt : undefined
   const onMessageDelivered = typeof handlers === 'object' ? handlers.onMessageDelivered : undefined
   const onPresence = typeof handlers === 'object' ? handlers.onPresence : undefined
+  const onMessageReaction = typeof handlers === 'object' ? handlers.onMessageReaction : undefined
+  const onMessageEdited = typeof handlers === 'object' ? handlers.onMessageEdited : undefined
+  const onMessageDeleted = typeof handlers === 'object' ? handlers.onMessageDeleted : undefined
 
   const websocketUrl = configuredWsUrl || (apiBaseUrl.replace(/^http/, 'ws') + '/ws')
   let closedByClient = false
@@ -355,6 +431,15 @@ export async function openConversationSocket(
           }
           if (payload.type === 'presence' && onPresence) {
             onPresence(payload as unknown as PresenceEvent)
+          }
+          if (payload.type === 'message_reaction' && onMessageReaction) {
+            onMessageReaction(payload as unknown as MessageReactionEvent)
+          }
+          if (payload.type === 'message_edited' && onMessageEdited) {
+            onMessageEdited(payload as unknown as MessageEditedEvent)
+          }
+          if (payload.type === 'message_deleted' && onMessageDeleted) {
+            onMessageDeleted(payload as unknown as MessageDeletedEvent)
           }
         } catch {
           // Ignore malformed server events; REST remains the source of truth.

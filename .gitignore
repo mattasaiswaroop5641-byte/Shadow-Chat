@@ -18,4 +18,6 @@ coverage/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+backend/uploads/*
+!backend/uploads/.gitkeep
 

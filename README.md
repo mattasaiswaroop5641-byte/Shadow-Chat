@@ -39,11 +39,11 @@
 
 ```mermaid
 flowchart LR
-    Browser["Client Device"] -->|HTTPS (SPA Assets)| Vercel["Vercel Global CDN (Frontend)"]
-    Browser -->|HTTPS REST: /auth, /conversations| Render["Render Web Service (FastAPI)"]
-    Browser -->|Direct WSS: /ws| Render
-    Render -->|TLS SRV Connection| Atlas[("MongoDB Atlas Cloud")]
-    UptimeRobot["UptimeRobot (5-Min Ping)"] -->|GET /health| Render
+    Browser["Client Device"] -->|"HTTPS SPA Assets"| Vercel["Vercel Global CDN (Frontend)"]
+    Browser -->|"HTTPS REST (/auth, /conversations)"| Render["Render Web Service (FastAPI)"]
+    Browser -->|"Direct WSS (/ws)"| Render
+    Render -->|"TLS SRV Connection"| Atlas["MongoDB Atlas Cloud"]
+    UptimeRobot["UptimeRobot (5-Min Ping)"] -->|"GET /health"| Render
 ```
 
 ---

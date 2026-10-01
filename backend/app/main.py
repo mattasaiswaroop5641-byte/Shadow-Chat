@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path as PathLib
 from typing import Any
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -15,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.core.config import get_settings
+from app.core.config import get_settings, get_uploads_dir
 from app.core.database import get_database, lifespan
 from app.routes.auth import router as auth_router
 from app.routes.conversations import router as conversations_router
@@ -54,7 +56,8 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > settings.max_request_body_bytes:
+        max_bytes = 15728640 if "/attachments" in request.url.path else settings.max_request_body_bytes
+        if content_length and int(content_length) > max_bytes:
             return JSONResponse(status_code=413, content={"detail": "Request body is too large"})
         return await call_next(request)
 
@@ -109,6 +112,15 @@ async def health(
 @app.api_route("/health/liveness", methods=["GET", "HEAD"])
 def liveness() -> dict[str, str]:
     return {"status": "alive", "service": "shadow-chat"}
+
+
+@app.get("/attachments/{filename}")
+async def get_attachment_file(filename: str) -> FileResponse:
+    safe_filename = os.path.basename(filename)
+    file_path = get_uploads_dir() / safe_filename
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return FileResponse(file_path)
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

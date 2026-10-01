@@ -66,6 +66,23 @@ export type ConversationMember = {
   is_online?: boolean
 }
 
+export type Attachment = {
+  id: string
+  filename: string
+  content_type: string
+  size_bytes: number
+  url: string
+  is_encrypted?: boolean
+}
+
+export type ReplySummary = {
+  id: string
+  sender_id: string
+  sender_username?: string | null
+  content: string
+  is_encrypted?: boolean
+}
+
 export type Message = {
   id: string
   conversation_id: string
@@ -76,6 +93,13 @@ export type Message = {
   is_encrypted?: boolean
   status?: 'sent' | 'delivered' | 'read'
   created_at: string
+  edited_at?: string | null
+  is_edited?: boolean
+  is_deleted?: boolean
+  reply_to_id?: string | null
+  reply_to?: ReplySummary | null
+  attachments?: Attachment[]
+  reactions?: Record<string, string[]>
 }
 
 export type TypingEvent = {
@@ -103,4 +127,23 @@ export type PresenceEvent = {
   user_id: string
   status: 'online' | 'offline'
 }
+
+export type MessageReactionEvent = {
+  type: 'message_reaction'
+  conversation_id: string
+  message_id: string
+  reactions: Record<string, string[]>
+}
+
+export type MessageEditedEvent = {
+  type: 'message_edited'
+  message: Message
+}
+
+export type MessageDeletedEvent = {
+  type: 'message_deleted'
+  conversation_id: string
+  message_id: string
+}
+
 
