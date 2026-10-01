@@ -27,7 +27,10 @@ connection_attempts: dict[str, deque[float]] = defaultdict(deque)
 
 
 def is_allowed_origin(origin: str | None) -> bool:
-    return origin is None or origin in settings.websocket_origins
+    if origin is None:
+        return True
+    return origin.strip().rstrip("/") in settings.websocket_origins
+
 
 
 def allow_connection_attempt(client_host: str | None) -> bool:

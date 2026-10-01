@@ -20,7 +20,7 @@ class Settings:
     mongo_uri: str = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
     mongo_db: str = os.getenv("MONGODB_DB", "shadowchat")
     cors_origins: list[str] = [
-        origin.strip()
+        origin.strip().rstrip("/")
         for origin in os.getenv(
             "CORS_ORIGINS",
             "http://127.0.0.1:3000,http://localhost:3000,"
@@ -29,7 +29,7 @@ class Settings:
         if origin.strip()
     ]
     websocket_origins: list[str] = [
-        origin.strip()
+        origin.strip().rstrip("/")
         for origin in os.getenv(
             "WEBSOCKET_ORIGINS",
             os.getenv(
