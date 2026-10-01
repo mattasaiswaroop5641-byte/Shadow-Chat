@@ -48,6 +48,7 @@ import type {
   User,
   UserSummary,
 } from './types'
+import LandingPage from './LandingPage'
 
 const navItems: NavItem[] = [
   { id: 'messages', label: 'Messages', badge: '3', active: true },
@@ -62,151 +63,7 @@ const serverList: ServerItem[] = [
   { id: 'ops', name: 'Ops', accent: 'bg-cyan-500', unread: 5 },
 ]
 
-type AuthMode = 'login' | 'register'
 
-function AuthPanel({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
-  const [mode, setMode] = useState<AuthMode>('login')
-  const [email, setEmail] = useState('')
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [code, setCode] = useState('')
-  const [verificationRequired, setVerificationRequired] = useState(false)
-  const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setBusy(true)
-    setError('')
-    setMessage('')
-    try {
-      if (mode === 'login') {
-        try {
-          const user = await login(email, password)
-          onAuthenticated(user)
-        } catch (loginError) {
-          if (loginError instanceof ApiError && loginError.status === 403) {
-            setVerificationRequired(true)
-            setMessage('Verify your email to finish signing in.')
-          } else {
-            throw loginError
-          }
-        }
-      } else {
-        await register(email, username, password)
-        setVerificationRequired(true)
-        setMessage('Account created. Enter the six-digit code sent to your email.')
-      }
-    } catch (submissionError) {
-      setError(submissionError instanceof ApiError ? submissionError.message : 'Unable to complete the request.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleVerification(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setBusy(true)
-    setError('')
-    try {
-      const user = await verifyEmail(code)
-      onAuthenticated(user)
-    } catch (verificationError) {
-      setError(verificationError instanceof ApiError ? verificationError.message : 'Unable to verify your email.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleResend() {
-    setBusy(true)
-    setError('')
-    setMessage('')
-    try {
-      await resendVerification()
-      setMessage('A new verification code has been sent.')
-    } catch (resendError) {
-      setError(resendError instanceof ApiError ? resendError.message : 'Unable to resend the verification code.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 text-slate-100">
-      <section className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#101827] p-8 shadow-soft">
-        <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 border border-slate-800 p-2 shadow-soft">
-          <img src="/shadow-chat-logo.png" alt="Shadow Chat Logo" className="h-full w-full object-contain" />
-        </div>
-        <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Shadow Chat</p>
-        <h1 className="mt-2 text-2xl font-semibold text-white">
-          {verificationRequired ? 'Verify your email' : mode === 'login' ? 'Welcome back' : 'Create your account'}
-        </h1>
-        <p className="mt-2 text-sm text-slate-400">
-          {verificationRequired ? 'Email verification is required before you can enter the chat.' : 'Use your Shadow Chat account to continue.'}
-        </p>
-
-        {message ? <p className="mt-5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{message}</p> : null}
-        {error ? <p role="alert" className="mt-5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p> : null}
-
-        {verificationRequired ? (
-          <form className="mt-6 space-y-4" onSubmit={handleVerification}>
-            <label className="block text-sm text-slate-300">
-              Verification code
-              <input
-                required
-                inputMode="numeric"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-emerald-400"
-              />
-            </label>
-            <button disabled={busy} className="w-full rounded-lg bg-emerald-500 px-4 py-2 font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50" type="submit">
-              {busy ? 'Verifying...' : 'Verify email'}
-            </button>
-            <button disabled={busy} className="w-full rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 disabled:opacity-50" type="button" onClick={handleResend}>
-              Resend code
-            </button>
-          </form>
-        ) : (
-          <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-            <label className="block text-sm text-slate-300">
-              Email
-              <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-emerald-400" />
-            </label>
-            {mode === 'register' ? (
-              <label className="block text-sm text-slate-300">
-                Username
-                <input required minLength={3} maxLength={32} value={username} onChange={(event) => setUsername(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-emerald-400" />
-              </label>
-            ) : null}
-            <label className="block text-sm text-slate-300">
-              Password
-              <input required minLength={8} maxLength={128} type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-emerald-400" />
-            </label>
-            <button disabled={busy} className="w-full rounded-lg bg-emerald-500 px-4 py-2 font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50" type="submit">
-              {busy ? 'Working...' : mode === 'login' ? 'Log in' : 'Create account'}
-            </button>
-            <button
-              className="w-full text-sm text-emerald-400 hover:text-emerald-300"
-              type="button"
-              onClick={() => {
-                setMode(mode === 'login' ? 'register' : 'login')
-                setError('')
-                setMessage('')
-              }}
-            >
-              {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Log in'}
-            </button>
-          </form>
-        )}
-      </section>
-    </main>
-  )
-}
 
 function UserAvatar({
   username,
@@ -1104,7 +961,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthPanel onAuthenticated={setUser} />
+    return <LandingPage onAuthenticated={setUser} />
   }
 
   const directPartnerMember = selectedConversation?.kind === 'direct'
@@ -1130,31 +987,43 @@ export default function App() {
     : 'No conversation'
 
   return (
-    <div className="min-h-screen bg-[#0b1020] text-slate-100">
-      <div className="flex min-h-screen">
-        <aside className="w-20 border-r border-slate-800 bg-[#0d1424] p-3">
-          <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 border border-slate-800 p-1.5 shadow-soft">
-            <img src="/shadow-chat-logo.png" alt="Shadow Chat" className="h-full w-full object-contain" />
+    <div className="relative min-h-screen bg-[#070b14] text-slate-100 overflow-hidden">
+      {/* Cyber Ambient Glowing Orbs */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-32 left-1/4 h-[450px] w-[450px] rounded-full bg-emerald-500/10 blur-[130px]" />
+        <div className="absolute top-1/2 -right-32 h-[500px] w-[500px] rounded-full bg-cyan-500/10 blur-[150px]" />
+        <div className="absolute bottom-0 left-1/3 h-[400px] w-[400px] rounded-full bg-indigo-500/10 blur-[140px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:28px_28px] opacity-20" />
+      </div>
+
+      <div className="relative flex min-h-screen z-10">
+        <aside className="w-20 border-r border-white/[0.08] bg-[#090e1a]/85 backdrop-blur-xl p-3 flex flex-col justify-between">
+          <div>
+            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 border border-emerald-500/30 p-1.5 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+              <img src="/shadow-chat-logo.png" alt="Shadow Chat" className="h-full w-full object-contain" />
+            </div>
+            <nav className="space-y-3">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={`flex w-full items-center justify-center rounded-xl px-2 py-3 text-xs font-medium transition ${
+                    item.active
+                      ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm'
+                      : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-100'
+                  }`}
+                  type="button"
+                >
+                  {item.label.charAt(0)}
+                  {item.badge ? (
+                    <span className="ml-1 rounded-full bg-emerald-500 px-1.5 text-[10px] text-slate-950 font-bold">{item.badge}</span>
+                  ) : null}
+                </button>
+              ))}
+            </nav>
           </div>
-          <nav className="space-y-3">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                className={`flex w-full items-center justify-center rounded-xl px-2 py-3 text-xs font-medium transition ${
-                  item.active ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100'
-                }`}
-                type="button"
-              >
-                {item.label.charAt(0)}
-                {item.badge ? (
-                  <span className="ml-1 rounded-full bg-emerald-500 px-1.5 text-[10px] text-slate-950">{item.badge}</span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
         </aside>
 
-        <aside className="w-72 border-r border-slate-800 bg-[#101827] p-4">
+        <aside className="w-72 border-r border-white/[0.08] bg-[#0b1220]/75 backdrop-blur-xl p-4">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Teams</p>
@@ -1497,12 +1366,12 @@ export default function App() {
                       )}
 
                       <div
-                        className={`max-w-xl rounded-2xl border px-4 py-3 shadow-soft ${
+                        className={`max-w-xl rounded-2xl border px-4 py-3 shadow-soft backdrop-blur-md transition-all ${
                           isDeleted
-                            ? 'border-slate-800 bg-slate-900/40 text-slate-500'
+                            ? 'border-white/5 bg-slate-900/30 text-slate-500'
                             : isSelf
-                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-50'
-                            : 'border-slate-700 bg-slate-900/80 text-slate-100'
+                            ? 'border-emerald-500/30 bg-gradient-to-br from-emerald-500/15 via-emerald-500/10 to-teal-500/10 text-emerald-50 shadow-[0_4px_20px_rgba(16,185,129,0.08)]'
+                            : 'border-white/[0.08] bg-[#0c1322]/85 text-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.3)]'
                         }`}
                       >
                         {/* Quoted Reply Banner */}
@@ -1677,10 +1546,10 @@ export default function App() {
               ) : null}
 
               {/* Message Draft Input Area */}
-              <div className="border-t border-slate-800 bg-[#0d1424] p-4">
+              <div className="border-t border-white/[0.08] bg-[#090e1a]/85 p-4 backdrop-blur-xl">
                 {/* Replying Banner */}
                 {replyingTo ? (
-                  <div className="flex items-center justify-between rounded-t-xl bg-slate-800/80 px-4 py-2 text-xs text-slate-300 border border-b-0 border-slate-700/60">
+                  <div className="flex items-center justify-between rounded-t-2xl bg-white/[0.04] px-4 py-2.5 text-xs text-slate-300 border border-b-0 border-white/10 backdrop-blur-md">
                     <span className="flex items-center gap-1.5 truncate">
                       <span className="text-emerald-400 font-medium">↩ Replying to</span>
                       <span className="font-semibold text-slate-200">
@@ -1702,11 +1571,11 @@ export default function App() {
 
                 {/* Pending Attachments List */}
                 {pendingAttachments.length > 0 ? (
-                  <div className="flex flex-wrap gap-2 px-3 py-2 bg-slate-900/60 border border-b-0 border-slate-700/60 rounded-t-xl">
+                  <div className="flex flex-wrap gap-2 px-3 py-2 bg-white/[0.03] border border-b-0 border-white/10 rounded-t-2xl backdrop-blur-md">
                     {pendingAttachments.map((att) => (
                       <div
                         key={att.id}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs text-slate-300"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300"
                       >
                         <span>📎</span>
                         <span className="truncate max-w-[160px]">{att.filename}</span>
@@ -1728,7 +1597,7 @@ export default function App() {
                 ) : null}
 
                 <div
-                  className={`flex items-center gap-3 border border-slate-700 bg-slate-900/80 px-3 py-3 ${
+                  className={`flex items-center gap-3 border border-white/10 bg-white/[0.03] backdrop-blur-md px-3.5 py-3 focus-within:border-emerald-500/50 focus-within:bg-white/[0.06] focus-within:shadow-[0_0_25px_rgba(16,185,129,0.15)] transition-all ${
                     replyingTo || pendingAttachments.length > 0 ? 'rounded-b-2xl' : 'rounded-2xl'
                   }`}
                 >
@@ -1751,7 +1620,7 @@ export default function App() {
                     }}
                     type="button"
                     title="Create new conversation"
-                    className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700"
+                    className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-slate-200 hover:bg-white/10 hover:text-white transition"
                   >
                     +
                   </button>
@@ -1760,7 +1629,7 @@ export default function App() {
                     onClick={() => fileInputRef.current?.click()}
                     disabled={!selectedConversationId || uploadingAttachment}
                     title="Attach file or image (max 15MB)"
-                    className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white disabled:opacity-50 transition"
+                    className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-50 transition"
                   >
                     {uploadingAttachment ? '⏳' : '📎'}
                   </button>
@@ -1781,7 +1650,7 @@ export default function App() {
                     onClick={() => void handleSend()}
                     disabled={!selectedConversationId || (!draft.trim() && pendingAttachments.length === 0) || sending}
                     type="button"
-                    className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)] transition hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {sending ? 'Sending...' : 'Send'}
                   </button>
@@ -1843,9 +1712,9 @@ export default function App() {
 
       {/* Create Conversation Modal */}
       {createModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#101827] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
+          <div className="w-full max-w-md rounded-3xl border border-white/[0.12] bg-[#0c1322]/85 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h2 className="text-lg font-semibold text-white">New Conversation</h2>
               <button
                 type="button"
@@ -2009,9 +1878,9 @@ export default function App() {
 
       {/* Invite Member Modal */}
       {inviteModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#101827] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
+          <div className="w-full max-w-md rounded-3xl border border-white/[0.12] bg-[#0c1322]/85 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h2 className="text-lg font-semibold text-white">Invite to Group</h2>
               <button
                 type="button"
@@ -2094,9 +1963,9 @@ export default function App() {
 
       {/* Safety Number / Fingerprint Modal */}
       {safetyModalOpen && safetyNumber ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#101827] p-6 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xl p-4">
+          <div className="w-full max-w-md rounded-3xl border border-white/[0.12] bg-[#0c1322]/85 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
                 <span className="text-xl">🔒</span>
                 <h2 className="text-lg font-semibold text-white">E2EE Safety Number</h2>
@@ -2153,9 +2022,9 @@ export default function App() {
 
       {/* User Profile Settings Modal */}
       {profileModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-[#101827] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
+          <div className="w-full max-w-lg rounded-3xl border border-white/[0.12] bg-[#0c1322]/85 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div className="flex items-center gap-2.5">
                 <span className="text-xl">👤</span>
                 <div>

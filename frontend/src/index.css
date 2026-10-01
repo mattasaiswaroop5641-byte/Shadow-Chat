@@ -7,7 +7,7 @@
   line-height: 1.5;
   font-weight: 400;
   color: #e5eefb;
-  background: #0b1020;
+  background: #070b14;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -18,7 +18,7 @@ html, body, #root {
   margin: 0;
   min-height: 100%;
   min-width: 100%;
-  background: #0b1020;
+  background: #070b14;
 }
 
 body {
@@ -33,15 +33,49 @@ button, input, textarea {
   font: inherit;
 }
 
+/* Custom Glassmorphism Utilities */
+.glass-panel {
+  background: rgba(12, 19, 34, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-glow {
+  background: rgba(12, 19, 34, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  box-shadow: 0 0 35px rgba(16, 185, 129, 0.1);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-input:focus {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(52, 211, 153, 0.8);
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+}
+
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #090e1a;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #22314a;
+  background: #1e293b;
   border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
 }
