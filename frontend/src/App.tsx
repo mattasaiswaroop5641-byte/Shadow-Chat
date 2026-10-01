@@ -1,9 +1,19 @@
 import { FormEvent, useEffect, useState } from 'react'
 import {
+  calculateSafetyNumber,
+  decryptMessage,
+  deriveConversationKey,
+  encryptMessage,
+  exportPublicKeySpki,
+  getOrGenerateIdentityKeyPair,
+  importPublicKeySpki,
+} from './lib/crypto'
+import {
   ApiError,
   addMember,
   createConversation,
   fetchHealth,
+  getUserPublicKey,
   listConversations,
   listMembers,
   listMessages,
@@ -16,6 +26,7 @@ import {
   searchUsers,
   sendMessage,
   setSessionExpiredHandler,
+  uploadPublicKey,
   verifyEmail,
 } from './lib/api'
 import type { Conversation, ConversationMember, Message, NavItem, ServerItem, User, UserSummary } from './types'
@@ -220,6 +231,16 @@ export default function App() {
   const [inviteSuccess, setInviteSuccess] = useState('')
   const [inviteBusy, setInviteBusy] = useState(false)
 
+  // E2EE Cryptographic State
+  const [myKeyPair, setMyKeyPair] = useState<CryptoKeyPair | null>(null)
+  const [myPublicKeySpki, setMyPublicKeySpki] = useState<string | null>(null)
+  const [conversationAesKey, setConversationAesKey] = useState<CryptoKey | null>(null)
+  const [safetyNumber, setSafetyNumber] = useState<string | null>(null)
+  const [safetyModalOpen, setSafetyModalOpen] = useState(false)
+  const [decryptedCache, setDecryptedCache] = useState<Record<string, string>>({})
+
+  const selectedConversation = conversations.find((c) => c.id === selectedConversationId) || null
+
   useEffect(() => {
     restoreSession().then(setUser).finally(() => setAuthLoading(false))
     fetchHealth()
@@ -231,6 +252,122 @@ export default function App() {
     setSessionExpiredHandler(() => setUser(null))
     return () => setSessionExpiredHandler(null)
   }, [])
+
+  // Initialize E2EE Keys on user authentication
+  useEffect(() => {
+    if (!user) {
+      setMyKeyPair(null)
+      setMyPublicKeySpki(null)
+      return
+    }
+    let active = true
+    void getOrGenerateIdentityKeyPair(user.id).then(async (keyPair) => {
+      if (!active) return
+      setMyKeyPair(keyPair)
+      try {
+        const spki = await exportPublicKeySpki(keyPair.publicKey)
+        if (!active) return
+        setMyPublicKeySpki(spki)
+        void uploadPublicKey(spki).catch(() => {})
+      } catch {
+        // Ignore key export failures
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [user])
+
+  // Derive conversation key & safety number for Direct Messages
+  useEffect(() => {
+    if (!user || !myKeyPair || !myPublicKeySpki || !selectedConversation) {
+      setConversationAesKey(null)
+      setSafetyNumber(null)
+      return
+    }
+
+    if (selectedConversation.kind === 'direct') {
+      const peer = members.find((m) => m.user_id !== user.id)
+      const peerKeySpki = peer?.public_key
+
+      if (peerKeySpki) {
+        let active = true
+        importPublicKeySpki(peerKeySpki)
+          .then((peerPubKey) =>
+            deriveConversationKey(myKeyPair.privateKey, peerPubKey, selectedConversation.id),
+          )
+          .then(async (aesKey) => {
+            if (!active) return
+            setConversationAesKey(aesKey)
+            const safety = await calculateSafetyNumber(myPublicKeySpki, peerKeySpki)
+            if (active) setSafetyNumber(safety)
+          })
+          .catch(() => {
+            if (active) {
+              setConversationAesKey(null)
+              setSafetyNumber(null)
+            }
+          })
+        return () => {
+          active = false
+        }
+      } else {
+        if (peer?.user_id) {
+          let active = true
+          getUserPublicKey(peer.user_id).then((key) => {
+            if (active && key) {
+              setMembers((prev) =>
+                prev.map((m) => (m.user_id === peer.user_id ? { ...m, public_key: key } : m)),
+              )
+            }
+          })
+          return () => {
+            active = false
+          }
+        }
+        setConversationAesKey(null)
+        setSafetyNumber(null)
+      }
+    } else {
+      setConversationAesKey(null)
+      setSafetyNumber(null)
+    }
+  }, [user, myKeyPair, myPublicKeySpki, selectedConversation, members])
+
+  // Decrypt encrypted messages
+  useEffect(() => {
+    if (!conversationAesKey || messages.length === 0) return
+    let active = true
+    const toDecrypt = messages.filter(
+      (m) => m.is_encrypted && m.nonce && !decryptedCache[m.id],
+    )
+    if (toDecrypt.length === 0) return
+
+    Promise.all(
+      toDecrypt.map(async (m) => {
+        try {
+          const text = await decryptMessage(m.content, m.nonce!, conversationAesKey)
+          return { id: m.id, text }
+        } catch {
+          return { id: m.id, text: '[Unable to decrypt: key mismatch]' }
+        }
+      }),
+    ).then((results) => {
+      if (!active) return
+      setDecryptedCache((current) => {
+        const next = { ...current }
+        for (const item of results) {
+          next[item.id] = item.text
+        }
+        return next
+      })
+    })
+
+    return () => {
+      active = false
+    }
+  }, [messages, conversationAesKey, decryptedCache])
+
 
   useEffect(() => {
     if (!user) return
@@ -465,7 +602,15 @@ export default function App() {
     setSending(true)
     setMessagesError('')
     try {
-      const message = await sendMessage(selectedConversationId, content)
+      let message: Message
+      if (conversationAesKey) {
+        const { ciphertext, nonce } = await encryptMessage(content, conversationAesKey)
+        message = await sendMessage(selectedConversationId, ciphertext, nonce, true)
+        setDecryptedCache((current) => ({ ...current, [message.id]: content }))
+      } else {
+        message = await sendMessage(selectedConversationId, content)
+      }
+
       setMessages((current) => {
         if (current.some((item) => item.id === message.id || item.client_id === message.client_id)) {
           return current
@@ -491,7 +636,6 @@ export default function App() {
     return <AuthPanel onAuthenticated={setUser} />
   }
 
-  const selectedConversation = conversations.find((c) => c.id === selectedConversationId) || null
   const directPartner = selectedConversation?.kind === 'direct'
     ? members.find((m) => m.user_id !== user.id)?.username
     : null
@@ -661,6 +805,23 @@ export default function App() {
                 </button>
               ) : null}
 
+              {conversationAesKey ? (
+                <button
+                  type="button"
+                  onClick={() => setSafetyModalOpen(true)}
+                  title="End-to-End Encrypted. Click to verify Safety Number."
+                  className="inline-flex items-center gap-1.5 rounded-full border border-teal-500/40 bg-teal-500/10 px-3 py-1 text-xs font-medium text-teal-300 hover:bg-teal-500/20 transition cursor-pointer"
+                >
+                  <span className="text-xs">🔒</span>
+                  <span>E2EE Active</span>
+                </button>
+              ) : selectedConversation?.kind === 'direct' ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1 text-xs text-slate-400">
+                  <span className="text-xs">🔓</span>
+                  <span>Syncing Keys...</span>
+                </span>
+              ) : null}
+
               <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
                 {socketStatus === 'connected' ? 'Live connected' : 'Live reconnecting'}
@@ -713,6 +874,9 @@ export default function App() {
                   const isSelf = message.sender_id === user.id
                   const senderMember = members.find((m) => m.user_id === message.sender_id)
                   const senderLabel = isSelf ? 'You' : senderMember?.username || 'Member'
+                  const displayContent = message.is_encrypted
+                    ? decryptedCache[message.id] || '[Decrypting...]'
+                    : message.content
 
                   return (
                     <div key={message.id} className={`flex ${isSelf ? 'justify-end' : 'justify-start'}`}>
@@ -727,7 +891,12 @@ export default function App() {
                           <span className="font-semibold text-slate-300">{senderLabel}</span>
                           <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
-                        <p className="text-sm leading-6 whitespace-pre-wrap break-words">{message.content}</p>
+                        <p className="text-sm leading-6 whitespace-pre-wrap break-words">{displayContent}</p>
+                        {message.is_encrypted ? (
+                          <div className="mt-1.5 flex items-center justify-end gap-1 text-[10px] text-teal-400/90 font-medium">
+                            <span>🔒 E2EE</span>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   )
@@ -1060,6 +1229,42 @@ export default function App() {
                   )
                 })}
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Safety Number / Fingerprint Modal */}
+      {safetyModalOpen && safetyNumber ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#101827] p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🔒</span>
+                <h2 className="text-lg font-semibold text-white">E2EE Safety Number</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSafetyModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mt-4 text-xs text-slate-400 leading-relaxed">
+              Verify that your end-to-end encryption is authentic and secure. Compare this safety number with the other participant. If the numbers match on both screens, your conversation cannot be intercepted or modified by anyone, including the server.
+            </p>
+            <div className="mt-5 rounded-xl border border-teal-500/30 bg-teal-500/10 p-4 text-center font-mono text-base font-semibold tracking-wider text-teal-300">
+              {safetyNumber}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSafetyModalOpen(false)}
+                className="rounded-lg bg-teal-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-teal-400 transition"
+              >
+                Close & Confirm Verified
+              </button>
             </div>
           </div>
         </div>

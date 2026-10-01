@@ -17,6 +17,8 @@ router = APIRouter(prefix="/conversations/{conversation_id}/messages", tags=["me
 
 class MessageCreateRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=4000)
+    nonce: str | None = Field(default=None, max_length=128)
+    is_encrypted: bool = False
 
     @field_validator("content")
     @classmethod
@@ -32,6 +34,8 @@ class MessageReply(BaseModel):
     sender_id: str
     content: str
     client_id: str
+    nonce: str | None = None
+    is_encrypted: bool = False
     created_at: datetime
 
 
@@ -41,7 +45,9 @@ def serialize_message(document: dict[str, Any]) -> MessageReply:
         conversation_id=str(document["conversation_id"]),
         sender_id=str(document["sender_id"]),
         content=document["content"],
-        client_id=document["client_id"],
+        client_id=document.get("client_id", ""),
+        nonce=document.get("nonce"),
+        is_encrypted=document.get("is_encrypted", False),
         created_at=document["created_at"],
     )
 
@@ -59,6 +65,8 @@ async def create_message(
         "conversation_id": conversation["_id"],
         "sender_id": ObjectId(user.id),
         "content": payload.content,
+        "nonce": payload.nonce,
+        "is_encrypted": payload.is_encrypted,
         "client_id": str(uuid4()),
         "created_at": now,
     }

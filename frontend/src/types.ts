@@ -62,6 +62,7 @@ export type ConversationMember = {
   username: string
   role: 'owner' | 'member'
   created_at: string
+  public_key?: string | null
 }
 
 export type Message = {
@@ -70,5 +71,8 @@ export type Message = {
   sender_id: string
   content: string
   client_id: string
+  nonce?: string | null
+  is_encrypted?: boolean
   created_at: string
 }
+

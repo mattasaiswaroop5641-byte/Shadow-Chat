@@ -229,12 +229,36 @@ export function listMessages(
   )
 }
 
-export function sendMessage(conversationId: string, content: string): Promise<Message> {
+export function sendMessage(
+  conversationId: string,
+  content: string,
+  nonce?: string | null,
+  is_encrypted?: boolean,
+): Promise<Message> {
   return request<Message>(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, nonce, is_encrypted: Boolean(is_encrypted) }),
   })
 }
+
+export function uploadPublicKey(publicKey: string): Promise<void> {
+  return request<void>('/users/me/public-key', {
+    method: 'PUT',
+    body: JSON.stringify({ public_key: publicKey }),
+  })
+}
+
+export async function getUserPublicKey(userId: string): Promise<string | null> {
+  try {
+    const res = await request<{ user_id: string; public_key: string | null }>(
+      `/users/${encodeURIComponent(userId)}/public-key`,
+    )
+    return res.public_key
+  } catch {
+    return null
+  }
+}
+
 
 export async function openConversationSocket(
   onMessage: (message: Message) => void,

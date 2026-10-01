@@ -52,6 +52,7 @@ class MemberReply(BaseModel):
     username: str
     role: Literal["owner", "member"]
     created_at: datetime
+    public_key: str | None = None
 
 
 def serialize_conversation(document: dict[str, Any]) -> ConversationReply:
@@ -365,17 +366,32 @@ async def list_members(
     ).sort("created_at", 1)
     memberships = await cursor.to_list(length=1000) if hasattr(cursor, "to_list") else await cursor
     user_ids = [m["user_id"] for m in memberships]
-    users_cursor = database.users.find({"_id": {"$in": user_ids}}, {"_id": 1, "username": 1})
+    users_cursor = database.users.find(
+        {"_id": {"$in": user_ids}}, {"_id": 1, "username": 1, "public_key": 1}
+    )
     users = await users_cursor.to_list(length=len(user_ids)) if hasattr(users_cursor, "to_list") else await users_cursor
-    users_by_id = {u["_id"]: u["username"] for u in users}
+    users_by_id: dict[Any, Any] = {}
+    for u in users:
+        uid = u["_id"] if isinstance(u, dict) else getattr(u, "_id", None)
+        users_by_id[uid] = u
+
     return [
         MemberReply(
             id=str(m["_id"]),
             conversation_id=str(m["conversation_id"]),
             user_id=str(m["user_id"]),
-            username=users_by_id.get(m["user_id"], "Unknown"),
+            username=(
+                users_by_id.get(m["user_id"], {}).get("username", "Unknown")
+                if isinstance(users_by_id.get(m["user_id"]), dict)
+                else getattr(users_by_id.get(m["user_id"]), "username", "Unknown")
+            ),
             role=m.get("role", "member"),
             created_at=m["created_at"],
+            public_key=(
+                users_by_id.get(m["user_id"], {}).get("public_key")
+                if isinstance(users_by_id.get(m["user_id"]), dict)
+                else getattr(users_by_id.get(m["user_id"]), "public_key", None)
+            ),
         )
         for m in memberships
     ]
