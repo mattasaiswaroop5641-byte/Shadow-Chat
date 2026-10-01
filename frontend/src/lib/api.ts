@@ -1,7 +1,8 @@
 import type { Conversation, ConversationMember, Message, TokenReply, User, UserSummary } from '../types'
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
-const apiBaseUrl = configuredBaseUrl || 'http://127.0.0.1:8000'
+const configuredWsUrl = import.meta.env.VITE_WS_URL?.trim()
+const apiBaseUrl = (configuredBaseUrl || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 const refreshTokenStorageKey = 'shadow-chat.refresh-token'
 
 let accessToken: string | null = null
@@ -240,7 +241,7 @@ export async function openConversationSocket(
   onStatus: (status: 'connected' | 'disconnected') => void,
   onMemberJoined?: (event: { conversation_id: string; user: { id: string; username: string } }) => void,
 ): Promise<{ subscribe: (conversationId: string) => void; close: () => void }> {
-  const websocketUrl = apiBaseUrl.replace(/^http/, 'ws') + '/ws'
+  const websocketUrl = configuredWsUrl || (apiBaseUrl.replace(/^http/, 'ws') + '/ws')
   let closedByClient = false
   let subscribedConversation: string | null = null
   let socket: WebSocket | null = null

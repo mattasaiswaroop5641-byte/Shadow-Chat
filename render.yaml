@@ -19,7 +19,11 @@ services:
         value: shadow-chat
       - key: JWT_AUDIENCE
         value: shadow-chat-client
+      - key: PYTHON_VERSION
+        value: 3.11.6
       - key: CORS_ORIGINS
+        sync: false
+      - key: WEBSOCKET_ORIGINS
         sync: false
       - key: ALLOWED_HOSTS
         sync: false
