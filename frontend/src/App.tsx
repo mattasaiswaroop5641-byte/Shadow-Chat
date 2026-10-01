@@ -990,17 +990,24 @@ export default function App() {
     <div className="relative min-h-screen bg-[#070b14] text-slate-100 overflow-hidden">
       {/* Cyber Ambient Glowing Orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-32 left-1/4 h-[450px] w-[450px] rounded-full bg-emerald-500/10 blur-[130px]" />
-        <div className="absolute top-1/2 -right-32 h-[500px] w-[500px] rounded-full bg-cyan-500/10 blur-[150px]" />
-        <div className="absolute bottom-0 left-1/3 h-[400px] w-[400px] rounded-full bg-indigo-500/10 blur-[140px]" />
+        <div className="absolute -top-32 left-1/4 h-[550px] w-[550px] rounded-full bg-gradient-to-tr from-emerald-500/25 via-teal-400/20 to-cyan-500/25 blur-[140px]" />
+        <div className="absolute top-1/3 -right-32 h-[600px] w-[600px] rounded-full bg-gradient-to-bl from-cyan-500/25 via-blue-500/15 to-purple-600/25 blur-[160px]" />
+        <div className="absolute bottom-0 left-1/4 h-[500px] w-[500px] rounded-full bg-gradient-to-tr from-purple-600/20 via-fuchsia-500/15 to-emerald-500/20 blur-[140px]" />
         <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:28px_28px] opacity-20" />
       </div>
 
       <div className="relative flex min-h-screen z-10">
-        <aside className="w-20 border-r border-white/[0.08] bg-[#090e1a]/85 backdrop-blur-xl p-3 flex flex-col justify-between">
+        <aside className="w-20 border-r border-white/10 bg-[#090e1a]/60 backdrop-blur-2xl p-3 flex flex-col justify-between shadow-[4px_0_24px_rgba(0,0,0,0.3)]">
           <div>
-            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 border border-emerald-500/30 p-1.5 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
-              <img src="/shadow-chat-logo.png" alt="Shadow Chat" className="h-full w-full object-contain" />
+            <div className="mb-6 relative group flex items-center justify-center">
+              <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-emerald-500/30 via-teal-400/40 to-cyan-500/30 opacity-75 blur-md group-hover:opacity-100 transition duration-300" />
+              <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.08] backdrop-blur-xl border border-white/20 border-t-white/40 shadow-[0_4px_16px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.3)]">
+                <img
+                  src="/shadow-chat-3d-glass.png"
+                  alt="Shadow Chat"
+                  className="h-10 w-10 object-contain drop-shadow-[0_4px_10px_rgba(45,212,191,0.5)] transform group-hover:scale-110 transition duration-300"
+                />
+              </div>
             </div>
             <nav className="space-y-3">
               {navItems.map((item) => (
@@ -1023,11 +1030,11 @@ export default function App() {
           </div>
         </aside>
 
-        <aside className="w-72 border-r border-white/[0.08] bg-[#0b1220]/75 backdrop-blur-xl p-4">
+        <aside className="w-72 border-r border-white/10 bg-[#0b1220]/50 backdrop-blur-2xl p-4 shadow-[4px_0_24px_rgba(0,0,0,0.2)]">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Teams</p>
-              <h2 className="mt-1 text-lg font-semibold text-white">Shadow Chat</h2>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-400 font-medium">Teams</p>
+              <h2 className="mt-1 text-lg font-bold text-white tracking-tight">Shadow Chat</h2>
             </div>
             <button
               onClick={() => {
@@ -1035,7 +1042,7 @@ export default function App() {
                 setCreateModalOpen(true)
               }}
               type="button"
-              className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20"
+              className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.2)]"
             >
               + New
             </button>
@@ -1046,14 +1053,14 @@ export default function App() {
               <button
                 key={server.id}
                 type="button"
-                className="flex w-full items-center gap-3 rounded-xl bg-slate-900/60 px-3 py-2 text-left transition hover:bg-slate-800"
+                className="flex w-full items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-left backdrop-blur-md transition hover:bg-white/[0.08] hover:border-white/15"
               >
                 <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold text-white ${server.accent}`}>
                   {server.name.charAt(0)}
                 </span>
                 <span className="flex-1 text-sm text-slate-200">{server.name}</span>
                 {server.unread ? (
-                  <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-slate-950">
+                  <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-slate-950 shadow-sm">
                     {server.unread}
                   </span>
                 ) : null}
@@ -1063,14 +1070,14 @@ export default function App() {
 
           <div className="mt-8">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Channels</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-400 font-medium">Channels</p>
               <button
                 onClick={() => {
                   setCreateError('')
                   setCreateModalOpen(true)
                 }}
                 type="button"
-                className="text-xs text-emerald-400 hover:text-emerald-300"
+                className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
               >
                 + add
               </button>
@@ -1089,8 +1096,10 @@ export default function App() {
                     key={conversation.id}
                     onClick={() => setSelectedConversationId(conversation.id)}
                     type="button"
-                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-sm transition ${
-                      isSelected ? 'bg-slate-800 text-white font-medium shadow-sm' : 'text-slate-300 hover:bg-slate-900/80'
+                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-sm transition-all ${
+                      isSelected
+                        ? 'border border-emerald-500/40 border-t-emerald-400/60 bg-gradient-to-r from-emerald-500/20 via-teal-500/15 to-transparent text-white font-medium shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-xl'
+                        : 'border border-transparent text-slate-300 hover:border-white/10 hover:bg-white/[0.05]'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0 flex-1 text-left">
@@ -1129,8 +1138,8 @@ export default function App() {
           </div>
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col bg-[#0b1220]">
-          <header className="flex items-center justify-between border-b border-slate-800 bg-[#0d1424]/80 px-6 py-3 backdrop-blur-sm">
+        <main className="flex min-w-0 flex-1 flex-col bg-[#070b14]/40 backdrop-blur-md">
+          <header className="flex items-center justify-between border-b border-white/10 bg-[#0d1424]/60 px-6 py-3.5 backdrop-blur-2xl shadow-sm">
             <div className="flex items-center gap-3 min-w-0">
               {selectedConversation ? (
                 selectedConversation.kind === 'direct' ? (
@@ -1366,21 +1375,21 @@ export default function App() {
                       )}
 
                       <div
-                        className={`max-w-xl rounded-2xl border px-4 py-3 shadow-soft backdrop-blur-md transition-all ${
+                        className={`max-w-xl rounded-2xl border px-4 py-3 backdrop-blur-xl transition-all ${
                           isDeleted
                             ? 'border-white/5 bg-slate-900/30 text-slate-500'
                             : isSelf
-                            ? 'border-emerald-500/30 bg-gradient-to-br from-emerald-500/15 via-emerald-500/10 to-teal-500/10 text-emerald-50 shadow-[0_4px_20px_rgba(16,185,129,0.08)]'
-                            : 'border-white/[0.08] bg-[#0c1322]/85 text-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.3)]'
+                            ? 'border-emerald-400/30 border-t-emerald-400/50 bg-gradient-to-br from-emerald-500/20 via-teal-500/15 to-emerald-900/20 text-emerald-50 shadow-[0_8px_25px_rgba(16,185,129,0.15),inset_0_1px_1px_rgba(255,255,255,0.2)]'
+                            : 'border-white/15 border-t-white/30 bg-white/[0.07] text-slate-100 shadow-[0_8px_25px_rgba(0,0,0,0.35),inset_0_1px_1px_rgba(255,255,255,0.15)]'
                         }`}
                       >
                         {/* Quoted Reply Banner */}
                         {message.reply_to && !isDeleted ? (
-                          <div className="mb-2 rounded-lg border-l-2 border-emerald-400/80 bg-slate-800/70 px-2.5 py-1 text-xs">
+                          <div className="mb-2 rounded-xl border-l-2 border-emerald-400/80 bg-white/[0.05] border border-white/10 px-2.5 py-1 text-xs backdrop-blur-md">
                             <span className="font-semibold text-emerald-300">
                               @{message.reply_to.sender_username || 'Member'}
                             </span>
-                            <p className="truncate text-slate-400 mt-0.5">
+                            <p className="truncate text-slate-300 mt-0.5">
                               {message.reply_to.content}
                             </p>
                           </div>
@@ -1533,7 +1542,7 @@ export default function App() {
 
               {/* Ephemeral Typing Indicators Banner */}
               {activeTypingNames.length > 0 ? (
-                <div className="flex items-center gap-2 border-t border-slate-800/80 bg-[#0c1322] px-6 py-2 text-xs text-teal-300">
+                <div className="flex items-center gap-2 border-t border-white/10 bg-[#0c1322]/60 backdrop-blur-md px-6 py-2 text-xs text-teal-300">
                   <div className="flex items-center gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce" />
                     <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce [animation-delay:0.15s]" />
@@ -1546,7 +1555,7 @@ export default function App() {
               ) : null}
 
               {/* Message Draft Input Area */}
-              <div className="border-t border-white/[0.08] bg-[#090e1a]/85 p-4 backdrop-blur-xl">
+              <div className="border-t border-white/10 bg-[#090e1a]/50 p-4 backdrop-blur-2xl">
                 {/* Replying Banner */}
                 {replyingTo ? (
                   <div className="flex items-center justify-between rounded-t-2xl bg-white/[0.04] px-4 py-2.5 text-xs text-slate-300 border border-b-0 border-white/10 backdrop-blur-md">
@@ -1597,7 +1606,7 @@ export default function App() {
                 ) : null}
 
                 <div
-                  className={`flex items-center gap-3 border border-white/10 bg-white/[0.03] backdrop-blur-md px-3.5 py-3 focus-within:border-emerald-500/50 focus-within:bg-white/[0.06] focus-within:shadow-[0_0_25px_rgba(16,185,129,0.15)] transition-all ${
+                  className={`flex items-center gap-3 border border-white/15 border-t-white/30 bg-white/[0.06] backdrop-blur-2xl px-3.5 py-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] focus-within:border-emerald-400/60 focus-within:bg-white/[0.1] focus-within:shadow-[0_0_30px_rgba(16,185,129,0.25)] transition-all ${
                     replyingTo || pendingAttachments.length > 0 ? 'rounded-b-2xl' : 'rounded-2xl'
                   }`}
                 >
@@ -1712,249 +1721,261 @@ export default function App() {
 
       {/* Create Conversation Modal */}
       {createModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
-          <div className="w-full max-w-md rounded-3xl border border-white/[0.12] bg-[#0c1322]/85 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h2 className="text-lg font-semibold text-white">New Conversation</h2>
-              <button
-                type="button"
-                onClick={() => setCreateModalOpen(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-4 flex gap-2 rounded-xl bg-slate-900 p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setCreateKind('direct')
-                  setCreateError('')
-                }}
-                className={`flex-1 rounded-lg py-2 text-xs font-semibold transition ${
-                  createKind === 'direct' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Direct Message
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCreateKind('group')
-                  setCreateError('')
-                }}
-                className={`flex-1 rounded-lg py-2 text-xs font-semibold transition ${
-                  createKind === 'group' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Group Chat
-              </button>
-            </div>
-
-            {createError ? (
-              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                {createError}
-              </p>
-            ) : null}
-
-            {createKind === 'direct' ? (
-              <div className="mt-4 space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Find user to chat with
-                  </label>
-                  <input
-                    type="text"
-                    value={userSearchQuery}
-                    onChange={(e) => setUserSearchQuery(e.target.value)}
-                    placeholder="Search by username..."
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none"
-                    autoFocus
-                  />
-                </div>
-
-                <div className="max-h-48 overflow-y-auto space-y-1">
-                  {userSearching ? <p className="text-xs text-slate-400 py-2">Searching...</p> : null}
-                  {!userSearching && userSearchQuery.trim() && userSearchResults.length === 0 ? (
-                    <p className="text-xs text-slate-500 py-2">No users found.</p>
-                  ) : null}
-                  {userSearchResults.map((result) => (
-                    <button
-                      key={result.id}
-                      type="button"
-                      disabled={createBusy}
-                      onClick={() => void handleCreateDirect(result)}
-                      className="flex w-full items-center justify-between rounded-lg bg-slate-900/60 p-2 text-left hover:bg-slate-800 transition"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-300">
-                          {result.username.charAt(0).toUpperCase()}
-                        </span>
-                        <span className="text-sm font-medium text-slate-200">@{result.username}</span>
-                      </div>
-                      <span className="text-xs text-emerald-400">Start Chat →</span>
-                    </button>
-                  ))}
-                </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
+          <div className="relative w-full max-w-md">
+            <div className="absolute -inset-1.5 rounded-[36px] bg-gradient-to-r from-emerald-500/30 via-teal-400/20 to-purple-600/30 blur-2xl opacity-75 animate-pulse [animation-duration:5s]" />
+            <div className="relative w-full rounded-3xl border border-white/20 border-t-white/40 bg-gradient-to-b from-white/[0.12] via-slate-900/50 to-slate-950/70 p-6 shadow-[0_25px_70px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.35)] backdrop-blur-3xl">
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <h2 className="text-lg font-bold text-white tracking-tight">New Conversation</h2>
+                <button
+                  type="button"
+                  onClick={() => setCreateModalOpen(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/[0.08] text-slate-300 hover:border-white/40 hover:bg-white/20 hover:text-white transition shadow-sm"
+                >
+                  ✕
+                </button>
               </div>
-            ) : (
-              <form onSubmit={handleCreateGroup} className="mt-4 space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Group Name (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={createTitle}
-                    onChange={(e) => setCreateTitle(e.target.value)}
-                    placeholder="e.g. Project Apollo"
-                    maxLength={100}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none"
-                  />
-                </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Add Participants ({selectedGroupParticipants.length} selected)
-                  </label>
-                  <input
-                    type="text"
-                    value={userSearchQuery}
-                    onChange={(e) => setUserSearchQuery(e.target.value)}
-                    placeholder="Search users to add..."
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none"
-                  />
-                </div>
+              <div className="mt-4 flex gap-2 rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.06] p-1.5 backdrop-blur-xl shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateKind('direct')
+                    setCreateError('')
+                  }}
+                  className={`flex-1 rounded-xl py-2 text-xs font-bold transition-all ${
+                    createKind === 'direct'
+                      ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 shadow-[0_0_18px_rgba(16,185,129,0.45)]'
+                      : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
+                  }`}
+                >
+                  Direct Message
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateKind('group')
+                    setCreateError('')
+                  }}
+                  className={`flex-1 rounded-xl py-2 text-xs font-bold transition-all ${
+                    createKind === 'group'
+                      ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 shadow-[0_0_18px_rgba(16,185,129,0.45)]'
+                      : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
+                  }`}
+                >
+                  Group Chat
+                </button>
+              </div>
 
-                {selectedGroupParticipants.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-slate-900/50 border border-slate-800">
-                    {selectedGroupParticipants.map((p) => (
-                      <span
-                        key={p.id}
-                        className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-200"
-                      >
-                        @{p.username}
-                        <button
-                          type="button"
-                          onClick={() => setSelectedGroupParticipants((prev) => prev.filter((item) => item.id !== p.id))}
-                          className="text-slate-400 hover:text-white"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    ))}
+              {createError ? (
+                <p className="mt-3 rounded-2xl border border-rose-400/40 bg-rose-500/15 px-3.5 py-2 text-xs text-rose-200 backdrop-blur-md">
+                  {createError}
+                </p>
+              ) : null}
+
+              {createKind === 'direct' ? (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Find user to chat with
+                    </label>
+                    <input
+                      type="text"
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      placeholder="Search by username..."
+                      className="w-full rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.08] px-4 py-2.5 text-sm text-white placeholder:text-slate-400 shadow-[inset_0_2px_4px_rgba(0,0,0,0.3),0_1px_1px_rgba(255,255,255,0.1)] backdrop-blur-xl focus:border-emerald-400 focus:bg-white/[0.14] focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition-all"
+                      autoFocus
+                    />
                   </div>
-                ) : null}
 
-                <div className="max-h-36 overflow-y-auto space-y-1">
-                  {userSearchResults
-                    .filter((r) => !selectedGroupParticipants.some((p) => p.id === r.id))
-                    .map((result) => (
+                  <div className="max-h-48 overflow-y-auto space-y-1.5">
+                    {userSearching ? <p className="text-xs text-slate-400 py-2">Searching...</p> : null}
+                    {!userSearching && userSearchQuery.trim() && userSearchResults.length === 0 ? (
+                      <p className="text-xs text-slate-400 py-2">No users found.</p>
+                    ) : null}
+                    {userSearchResults.map((result) => (
                       <button
                         key={result.id}
                         type="button"
-                        onClick={() => setSelectedGroupParticipants((prev) => [...prev, result])}
-                        className="flex w-full items-center justify-between rounded-lg bg-slate-900/60 p-2 text-left hover:bg-slate-800 transition"
+                        disabled={createBusy}
+                        onClick={() => void handleCreateDirect(result)}
+                        className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.04] p-2.5 text-left hover:bg-white/[0.09] hover:border-white/20 backdrop-blur-md transition"
                       >
-                        <span className="text-xs text-slate-200">@{result.username}</span>
-                        <span className="text-xs text-emerald-400">+ Add</span>
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-300 border border-emerald-500/30">
+                            {result.username.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="text-sm font-semibold text-slate-200">@{result.username}</span>
+                        </div>
+                        <span className="text-xs text-emerald-400 font-medium">Start Chat →</span>
                       </button>
                     ))}
+                  </div>
                 </div>
+              ) : (
+                <form onSubmit={handleCreateGroup} className="mt-4 space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Group Name (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={createTitle}
+                      onChange={(e) => setCreateTitle(e.target.value)}
+                      placeholder="e.g. Stealth Protocol"
+                      maxLength={100}
+                      className="w-full rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.08] px-4 py-2.5 text-sm text-white placeholder:text-slate-400 shadow-[inset_0_2px_4px_rgba(0,0,0,0.3),0_1px_1px_rgba(255,255,255,0.1)] backdrop-blur-xl focus:border-emerald-400 focus:bg-white/[0.14] focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition-all"
+                    />
+                  </div>
 
-                <button
-                  type="submit"
-                  disabled={createBusy}
-                  className="w-full rounded-lg bg-emerald-500 py-2 text-sm font-medium text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50"
-                >
-                  {createBusy ? 'Creating Group...' : 'Create Group'}
-                </button>
-              </form>
-            )}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Add Participants ({selectedGroupParticipants.length} selected)
+                    </label>
+                    <input
+                      type="text"
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      placeholder="Search users to add..."
+                      className="w-full rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.08] px-4 py-2.5 text-sm text-white placeholder:text-slate-400 shadow-[inset_0_2px_4px_rgba(0,0,0,0.3),0_1px_1px_rgba(255,255,255,0.1)] backdrop-blur-xl focus:border-emerald-400 focus:bg-white/[0.14] focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition-all"
+                    />
+                  </div>
+
+                  {selectedGroupParticipants.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-white/[0.04] border border-white/10 backdrop-blur-md">
+                      {selectedGroupParticipants.map((p) => (
+                        <span
+                          key={p.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2 py-1 text-xs text-emerald-200"
+                        >
+                          @{p.username}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedGroupParticipants((prev) => prev.filter((item) => item.id !== p.id))}
+                            className="text-slate-400 hover:text-white"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="max-h-36 overflow-y-auto space-y-1.5">
+                    {userSearchResults
+                      .filter((r) => !selectedGroupParticipants.some((p) => p.id === r.id))
+                      .map((result) => (
+                        <button
+                          key={result.id}
+                          type="button"
+                          onClick={() => setSelectedGroupParticipants((prev) => [...prev, result])}
+                          className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.04] p-2 text-left hover:bg-white/[0.08] transition"
+                        >
+                          <span className="text-xs font-medium text-slate-200">@{result.username}</span>
+                          <span className="text-xs text-emerald-400 font-semibold">+ Add</span>
+                        </button>
+                      ))}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={createBusy}
+                    className="w-full rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-400 py-3 text-sm font-bold text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)] hover:shadow-[0_0_30px_rgba(16,185,129,0.55)] transition hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {createBusy ? 'Creating Group...' : 'Create Group'}
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       ) : null}
 
       {/* Invite Member Modal */}
       {inviteModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
-          <div className="w-full max-w-md rounded-3xl border border-white/[0.12] bg-[#0c1322]/85 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h2 className="text-lg font-semibold text-white">Invite to Group</h2>
-              <button
-                type="button"
-                onClick={() => setInviteModalOpen(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-
-            {inviteSuccess ? (
-              <p className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-                {inviteSuccess}
-              </p>
-            ) : null}
-            {inviteError ? (
-              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                {inviteError}
-              </p>
-            ) : null}
-
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Search username to invite
-                </label>
-                <input
-                  type="text"
-                  value={inviteQuery}
-                  onChange={(e) => setInviteQuery(e.target.value)}
-                  placeholder="Type username..."
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none"
-                  autoFocus
-                />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
+          <div className="relative w-full max-w-md">
+            <div className="absolute -inset-1.5 rounded-[36px] bg-gradient-to-r from-emerald-500/30 via-teal-400/20 to-purple-600/30 blur-2xl opacity-75 animate-pulse [animation-duration:5s]" />
+            <div className="relative w-full rounded-3xl border border-white/20 border-t-white/40 bg-gradient-to-b from-white/[0.12] via-slate-900/50 to-slate-950/70 p-6 shadow-[0_25px_70px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.35)] backdrop-blur-3xl">
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <h2 className="text-lg font-bold text-white tracking-tight">Invite to Group</h2>
+                <button
+                  type="button"
+                  onClick={() => setInviteModalOpen(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/[0.08] text-slate-300 hover:border-white/40 hover:bg-white/20 hover:text-white transition shadow-sm"
+                >
+                  ✕
+                </button>
               </div>
 
-              <div className="max-h-48 overflow-y-auto space-y-1">
-                {inviteSearching ? <p className="text-xs text-slate-400 py-2">Searching...</p> : null}
-                {!inviteSearching && inviteQuery.trim() && inviteSearchResults.length === 0 ? (
-                  <div className="p-3 text-center">
-                    <p className="text-xs text-slate-400">No matching user found via prefix.</p>
-                    <button
-                      type="button"
-                      onClick={() => void handleInviteMember({ username: inviteQuery.trim() })}
-                      className="mt-2 text-xs font-medium text-emerald-400 hover:underline"
-                    >
-                      Try inviting exact username "@{inviteQuery.trim()}"
-                    </button>
-                  </div>
-                ) : null}
-                {inviteSearchResults.map((result) => {
-                  const alreadyMember = members.some((m) => m.user_id === result.id)
-                  return (
-                    <button
-                      key={result.id}
-                      type="button"
-                      disabled={inviteBusy || alreadyMember}
-                      onClick={() => void handleInviteMember({ user_id: result.id })}
-                      className={`flex w-full items-center justify-between rounded-lg p-2 text-left transition ${
-                        alreadyMember ? 'bg-slate-900/30 opacity-50 cursor-not-allowed' : 'bg-slate-900/60 hover:bg-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-300">
-                          {result.username.charAt(0).toUpperCase()}
+              {inviteSuccess ? (
+                <p className="mt-3 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 px-3.5 py-2 text-xs text-emerald-200 backdrop-blur-md">
+                  {inviteSuccess}
+                </p>
+              ) : null}
+              {inviteError ? (
+                <p className="mt-3 rounded-2xl border border-rose-400/40 bg-rose-500/15 px-3.5 py-2 text-xs text-rose-200 backdrop-blur-md">
+                  {inviteError}
+                </p>
+              ) : null}
+
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Search username to invite
+                  </label>
+                  <input
+                    type="text"
+                    value={inviteQuery}
+                    onChange={(e) => setInviteQuery(e.target.value)}
+                    placeholder="Type username..."
+                    className="w-full rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.08] px-4 py-2.5 text-sm text-white placeholder:text-slate-400 shadow-[inset_0_2px_4px_rgba(0,0,0,0.3),0_1px_1px_rgba(255,255,255,0.1)] backdrop-blur-xl focus:border-emerald-400 focus:bg-white/[0.14] focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition-all"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="max-h-48 overflow-y-auto space-y-1.5">
+                  {inviteSearching ? <p className="text-xs text-slate-400 py-2">Searching...</p> : null}
+                  {!inviteSearching && inviteQuery.trim() && inviteSearchResults.length === 0 ? (
+                    <div className="p-3 text-center">
+                      <p className="text-xs text-slate-400">No matching user found via prefix.</p>
+                      <button
+                        type="button"
+                        onClick={() => void handleInviteMember({ username: inviteQuery.trim() })}
+                        className="mt-2 text-xs font-medium text-emerald-400 hover:underline"
+                      >
+                        Try inviting exact username "@{inviteQuery.trim()}"
+                      </button>
+                    </div>
+                  ) : null}
+                  {inviteSearchResults.map((result) => {
+                    const alreadyMember = members.some((m) => m.user_id === result.id)
+                    return (
+                      <button
+                        key={result.id}
+                        type="button"
+                        disabled={inviteBusy || alreadyMember}
+                        onClick={() => void handleInviteMember({ user_id: result.id })}
+                        className={`flex w-full items-center justify-between rounded-xl border p-2.5 text-left transition ${
+                          alreadyMember
+                            ? 'border-white/5 bg-white/[0.02] opacity-50 cursor-not-allowed'
+                            : 'border-white/10 bg-white/[0.04] hover:bg-white/[0.09] hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-300 border border-emerald-500/30">
+                            {result.username.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="text-sm font-semibold text-slate-200">@{result.username}</span>
+                        </div>
+                        <span className="text-xs text-emerald-400 font-medium">
+                          {alreadyMember ? 'Already member' : '+ Invite'}
                         </span>
-                        <span className="text-sm font-medium text-slate-200">@{result.username}</span>
-                      </div>
-                      <span className="text-xs text-emerald-400">
-                        {alreadyMember ? 'Already member' : '+ Invite'}
-                      </span>
-                    </button>
-                  )
-                })}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -1963,35 +1984,38 @@ export default function App() {
 
       {/* Safety Number / Fingerprint Modal */}
       {safetyModalOpen && safetyNumber ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xl p-4">
-          <div className="w-full max-w-md rounded-3xl border border-white/[0.12] bg-[#0c1322]/85 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🔒</span>
-                <h2 className="text-lg font-semibold text-white">E2EE Safety Number</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
+          <div className="relative w-full max-w-md">
+            <div className="absolute -inset-1.5 rounded-[36px] bg-gradient-to-r from-teal-500/30 via-emerald-400/20 to-cyan-500/30 blur-2xl opacity-75 animate-pulse [animation-duration:5s]" />
+            <div className="relative w-full rounded-3xl border border-white/20 border-t-white/40 bg-gradient-to-b from-white/[0.12] via-slate-900/50 to-slate-950/70 p-6 shadow-[0_25px_70px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.35)] backdrop-blur-3xl">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🔒</span>
+                  <h2 className="text-lg font-bold text-white tracking-tight">E2EE Safety Number</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSafetyModalOpen(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/[0.08] text-slate-300 hover:border-white/40 hover:bg-white/20 hover:text-white transition shadow-sm"
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setSafetyModalOpen(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="mt-4 text-xs text-slate-400 leading-relaxed">
-              Verify that your end-to-end encryption is authentic and secure. Compare this safety number with the other participant. If the numbers match on both screens, your conversation cannot be intercepted or modified by anyone, including the server.
-            </p>
-            <div className="mt-5 rounded-xl border border-teal-500/30 bg-teal-500/10 p-4 text-center font-mono text-base font-semibold tracking-wider text-teal-300">
-              {safetyNumber}
-            </div>
-            <div className="mt-6 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSafetyModalOpen(false)}
-                className="rounded-lg bg-teal-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-teal-400 transition"
-              >
-                Close & Confirm Verified
-              </button>
+              <p className="mt-4 text-xs text-slate-300/80 leading-relaxed">
+                Verify that your end-to-end encryption is authentic and secure. Compare this safety number with the other participant. If the numbers match on both screens, your conversation cannot be intercepted or modified by anyone, including the server.
+              </p>
+              <div className="mt-5 rounded-2xl border border-teal-500/40 border-t-teal-400/50 bg-teal-500/15 p-4 text-center font-mono text-base font-bold tracking-wider text-teal-200 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-md">
+                {safetyNumber}
+              </div>
+              <div className="mt-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSafetyModalOpen(false)}
+                  className="rounded-xl bg-gradient-to-r from-teal-400 to-emerald-400 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-[0_0_20px_rgba(45,212,191,0.35)] hover:brightness-105 active:scale-95 transition"
+                >
+                  Close & Confirm Verified
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2022,187 +2046,190 @@ export default function App() {
 
       {/* User Profile Settings Modal */}
       {profileModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
-          <div className="w-full max-w-lg rounded-3xl border border-white/[0.12] bg-[#0c1322]/85 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div className="flex items-center gap-2.5">
-                <span className="text-xl">👤</span>
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Profile Settings</h2>
-                  <p className="text-xs text-slate-400">Manage your avatar, status, and identity</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
+          <div className="relative w-full max-w-lg">
+            <div className="absolute -inset-1.5 rounded-[36px] bg-gradient-to-r from-emerald-500/30 via-teal-400/20 to-purple-600/30 blur-2xl opacity-75 animate-pulse [animation-duration:5s]" />
+            <div className="relative w-full rounded-3xl border border-white/20 border-t-white/40 bg-gradient-to-b from-white/[0.12] via-slate-900/50 to-slate-950/70 p-6 shadow-[0_25px_70px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.35)] backdrop-blur-3xl">
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">👤</span>
+                  <div>
+                    <h2 className="text-lg font-bold text-white tracking-tight">Profile Settings</h2>
+                    <p className="text-xs text-slate-300/80">Manage your stealth persona, status, and identity</p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setProfileModalOpen(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/[0.08] text-slate-300 hover:border-white/40 hover:bg-white/20 hover:text-white transition shadow-sm"
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setProfileModalOpen(false)}
-                className="text-slate-400 hover:text-white text-base"
-              >
-                ✕
-              </button>
-            </div>
 
-            {profileSuccess ? (
-              <p className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-                {profileSuccess}
-              </p>
-            ) : null}
-            {profileError ? (
-              <p className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                {profileError}
-              </p>
-            ) : null}
+              {profileSuccess ? (
+                <p className="mt-4 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 px-3.5 py-2 text-xs text-emerald-200 backdrop-blur-md">
+                  {profileSuccess}
+                </p>
+              ) : null}
+              {profileError ? (
+                <p className="mt-4 rounded-2xl border border-rose-400/40 bg-rose-500/15 px-3.5 py-2 text-xs text-rose-200 backdrop-blur-md">
+                  {profileError}
+                </p>
+              ) : null}
 
-            <form onSubmit={handleSaveProfile} className="mt-5 space-y-5">
-              {/* Avatar Preview & Upload */}
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                  Avatar
-                </label>
-                <div className="flex items-center gap-4">
-                  <UserAvatar
-                    username={user.username}
-                    avatarUrl={profileAvatarUrl}
-                    size="lg"
-                    isOnline={true}
-                  />
-                  <div className="space-y-2 flex-1">
-                    <input
-                      type="file"
-                      ref={avatarInputRef}
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          void handleAvatarUpload(file)
-                          e.target.value = ''
-                        }
-                      }}
+              <form onSubmit={handleSaveProfile} className="mt-5 space-y-5">
+                {/* Avatar Preview & Upload */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
+                    Avatar
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <UserAvatar
+                      username={user.username}
+                      avatarUrl={profileAvatarUrl}
+                      size="lg"
+                      isOnline={true}
                     />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={profileUploadingAvatar}
-                        onClick={() => avatarInputRef.current?.click()}
-                        className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition"
-                      >
-                        {profileUploadingAvatar ? 'Uploading...' : 'Upload Image'}
-                      </button>
-                      {profileAvatarUrl ? (
+                    <div className="space-y-2 flex-1">
+                      <input
+                        type="file"
+                        ref={avatarInputRef}
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            void handleAvatarUpload(file)
+                            e.target.value = ''
+                          }
+                        }}
+                      />
+                      <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => setProfileAvatarUrl('')}
-                          className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:text-rose-300 transition"
+                          disabled={profileUploadingAvatar}
+                          onClick={() => avatarInputRef.current?.click()}
+                          className="rounded-xl border border-white/20 border-t-white/30 bg-white/[0.08] px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-white/[0.15] hover:text-white transition shadow-sm disabled:opacity-50"
                         >
-                          Remove
+                          {profileUploadingAvatar ? 'Uploading...' : 'Upload Image'}
                         </button>
-                      ) : null}
+                        {profileAvatarUrl ? (
+                          <button
+                            type="button"
+                            onClick={() => setProfileAvatarUrl('')}
+                            className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-300 hover:bg-rose-500/20 transition"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="text-[11px] text-slate-400">Max size 5MB (PNG, JPG, WebP, GIF)</p>
                     </div>
-                    <p className="text-[11px] text-slate-500">Max size 5MB (PNG, JPG, WebP, GIF)</p>
+                  </div>
+
+                  {/* Avatar Presets */}
+                  <div className="mt-3.5">
+                    <p className="text-[11px] text-slate-300 mb-1.5 font-medium">Or choose a preset style:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { name: 'Ninja', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=ninja' },
+                        { name: 'Agent', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=agent' },
+                        { name: 'Cyber', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=cyber' },
+                        { name: 'Shadow', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=shadow' },
+                        { name: 'Ghost', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=ghost' },
+                      ].map((preset) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => setProfileAvatarUrl(preset.url)}
+                          className={`rounded-xl border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition ${
+                            profileAvatarUrl === preset.url
+                              ? 'border-emerald-400/60 bg-emerald-500/25 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                              : 'border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]'
+                          }`}
+                        >
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                {/* Avatar Presets */}
-                <div className="mt-3">
-                  <p className="text-[11px] text-slate-400 mb-1.5">Or choose a preset style:</p>
-                  <div className="flex flex-wrap gap-2">
+                {/* Status Message */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Custom Status Message
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={140}
+                    value={profileStatusMessage}
+                    onChange={(e) => setProfileStatusMessage(e.target.value)}
+                    placeholder="e.g. ⚡ Coding in stealth mode"
+                    className="w-full rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.08] px-4 py-2.5 text-sm text-white placeholder:text-slate-400 shadow-[inset_0_2px_4px_rgba(0,0,0,0.3),0_1px_1px_rgba(255,255,255,0.1)] backdrop-blur-xl focus:border-emerald-400 focus:bg-white/[0.14] focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition-all"
+                  />
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
                     {[
-                      { name: 'Ninja', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=ninja' },
-                      { name: 'Agent', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=agent' },
-                      { name: 'Cyber', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=cyber' },
-                      { name: 'Shadow', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=shadow' },
-                      { name: 'Ghost', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=ghost' },
+                      '⚡ Active & coding',
+                      '🥷 In stealth mode',
+                      '☕ AFK',
+                      '🎧 Focused with tunes',
+                      '🚀 Shipping features',
                     ].map((preset) => (
                       <button
-                        key={preset.name}
+                        key={preset}
                         type="button"
-                        onClick={() => setProfileAvatarUrl(preset.url)}
-                        className={`rounded-lg border px-2.5 py-1 text-xs transition ${
-                          profileAvatarUrl === preset.url
-                            ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
-                            : 'border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
-                        }`}
+                        onClick={() => setProfileStatusMessage(preset)}
+                        className="rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-0.5 text-[11px] text-slate-300 hover:border-white/30 hover:bg-white/[0.09] transition"
                       >
-                        {preset.name}
+                        {preset}
                       </button>
                     ))}
                   </div>
                 </div>
-              </div>
 
-              {/* Status Message */}
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Custom Status Message
-                </label>
-                <input
-                  type="text"
-                  maxLength={140}
-                  value={profileStatusMessage}
-                  onChange={(e) => setProfileStatusMessage(e.target.value)}
-                  placeholder="e.g. ⚡ Coding in stealth mode"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none"
-                />
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {[
-                    '⚡ Active & coding',
-                    '🥷 In stealth mode',
-                    '☕ AFK',
-                    '🎧 Focused with tunes',
-                    '🚀 Shipping features',
-                  ].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setProfileStatusMessage(preset)}
-                      className="rounded-full border border-slate-800 bg-slate-900/60 px-2.5 py-0.5 text-[11px] text-slate-400 hover:border-slate-700 hover:text-slate-200 transition"
-                    >
-                      {preset}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Account Overview */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-2 text-xs">
-                <div className="flex justify-between items-center text-slate-300">
-                  <span className="text-slate-400">Username:</span>
-                  <span className="font-semibold text-white">@{user.username}</span>
-                </div>
-                <div className="flex justify-between items-center text-slate-300">
-                  <span className="text-slate-400">Email:</span>
-                  <span className="flex items-center gap-1.5 font-medium text-slate-200">
-                    {user.email}
-                    <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 text-[10px] text-emerald-400 border border-emerald-500/30">
-                      ✓ Verified
+                {/* Account Overview */}
+                <div className="rounded-2xl border border-white/15 bg-white/[0.04] p-3.5 space-y-2 text-xs backdrop-blur-md">
+                  <div className="flex justify-between items-center text-slate-300">
+                    <span className="text-slate-400">Username:</span>
+                    <span className="font-semibold text-white">@{user.username}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-300">
+                    <span className="text-slate-400">Email:</span>
+                    <span className="flex items-center gap-1.5 font-medium text-slate-200">
+                      {user.email}
+                      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] text-emerald-300 border border-emerald-400/30">
+                        ✓ Verified
+                      </span>
                     </span>
-                  </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-300">
+                    <span className="text-slate-400">E2EE Identity:</span>
+                    <span className="text-teal-300 font-mono text-[11px] font-semibold">
+                      {myPublicKeySpki ? 'SPKI Key Active' : 'Generating...'}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center text-slate-300">
-                  <span className="text-slate-400">E2EE Identity:</span>
-                  <span className="text-teal-400 font-mono text-[11px]">
-                    {myPublicKeySpki ? 'SPKI Key Active' : 'Generating...'}
-                  </span>
-                </div>
-              </div>
 
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setProfileModalOpen(false)}
-                  className="rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={profileSaving}
-                  className="rounded-lg bg-emerald-500 px-5 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition"
-                >
-                  {profileSaving ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setProfileModalOpen(false)}
+                    className="rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/[0.1] hover:text-white transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={profileSaving}
+                    className="rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 px-5 py-2 text-xs font-bold text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)] hover:brightness-105 active:scale-95 disabled:opacity-50 transition"
+                  >
+                    {profileSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       ) : null}
