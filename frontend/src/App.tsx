@@ -87,11 +87,16 @@ function UserAvatar({
   size?: 'sm' | 'md' | 'lg'
   isOnline?: boolean
 }) {
+  const [imgError, setImgError] = useState(false)
   const sizeClasses = {
     sm: 'h-6 w-6 text-[10px]',
     md: 'h-8 w-8 text-xs',
     lg: 'h-12 w-12 text-base',
   }[size]
+
+  useEffect(() => {
+    setImgError(false)
+  }, [avatarUrl])
 
   const initial = (username || '?').charAt(0).toUpperCase()
   const gradients = [
@@ -103,7 +108,7 @@ function UserAvatar({
   ]
   const charCode = username ? username.charCodeAt(0) : 0
   const gradient = gradients[charCode % gradients.length]
-  const fullAvatarUrl = avatarUrl ? getAttachmentFileUrl(avatarUrl) : null
+  const fullAvatarUrl = avatarUrl && !imgError ? getAttachmentFileUrl(avatarUrl) : null
 
   return (
     <div className="relative inline-flex flex-shrink-0">
@@ -111,11 +116,13 @@ function UserAvatar({
         <img
           src={fullAvatarUrl}
           alt={username}
+          referrerPolicy="no-referrer"
+          onError={() => setImgError(true)}
           className={`${sizeClasses} rounded-full object-cover border border-slate-700/80 shadow-inner`}
         />
       ) : (
         <div
-          className={`${sizeClasses} rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center font-bold text-white shadow-inner uppercase tracking-wider`}
+          className={`${sizeClasses} rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center font-bold text-white shadow-inner uppercase tracking-wider select-none`}
         >
           {initial}
         </div>
