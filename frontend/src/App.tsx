@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   calculateSafetyNumber,
   decryptMessage,
@@ -49,6 +49,30 @@ import type {
   UserSummary,
 } from './types'
 import LandingPage from './LandingPage'
+import {
+  SmileIcon,
+  ReplyIcon,
+  PencilIcon,
+  TrashIcon,
+  CopyIcon,
+  PaperclipIcon,
+  SendIcon,
+  SparklesIcon,
+  BellIcon,
+  BellSlashIcon,
+  Volume2Icon,
+  VolumeXIcon,
+  AtSignIcon,
+  CheckIcon,
+  DoubleCheckIcon,
+  CloseIcon,
+} from './components/Icons'
+import {
+  playNotificationSound,
+  requestNotificationPermission,
+  showDesktopNotification,
+  getSmartSentenceSuggestions,
+} from './lib/notifications'
 
 
 
@@ -109,6 +133,74 @@ function UserAvatar({
         />
       ) : null}
     </div>
+  )
+}
+
+function formatDiscordTimestamp(dateStr: string): string {
+  try {
+    const d = new Date(dateStr)
+    const now = new Date()
+    const isToday = d.toDateString() === now.toDateString()
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const isYesterday = d.toDateString() === yesterday.toDateString()
+    const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+
+    if (isToday) return `Today at ${timeStr}`
+    if (isYesterday) return `Yesterday at ${timeStr}`
+    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${timeStr}`
+  } catch {
+    return dateStr
+  }
+}
+
+function FormattedMessageText({
+  content,
+  currentUsername,
+  onMentionClick,
+}: {
+  content: string
+  currentUsername?: string
+  onMentionClick?: (username: string) => void
+}) {
+  const mentionRegex = /(@everyone|@all|@[a-zA-Z0-9_-]+)/g
+  const parts = content.split(mentionRegex)
+
+  return (
+    <span>
+      {parts.map((part, index) => {
+        if (part === '@everyone' || part === '@all') {
+          return (
+            <span
+              key={index}
+              className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30"
+              title="Notifies all members in this conversation"
+            >
+              {part}
+            </span>
+          )
+        }
+        if (part.startsWith('@') && part.length > 1) {
+          const uname = part.slice(1)
+          const isCurrentUser = currentUsername && uname.toLowerCase() === currentUsername.toLowerCase()
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => onMentionClick?.(uname)}
+              className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-semibold transition ${
+                isCurrentUser
+                  ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-500/50 font-bold'
+                  : 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30 cursor-pointer'
+              }`}
+            >
+              {part}
+            </button>
+          )
+        }
+        return <span key={index}>{part}</span>
+      })}
+    </span>
   )
 }
 
@@ -198,6 +290,66 @@ export default function App() {
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null)
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [oauthConfigNeeded, setOauthConfigNeeded] = useState<string | null>(null)
+
+  // Notifications & Sound State
+  const [audioEnabled, setAudioEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('shadow_audio_enabled') !== 'false'
+  })
+  const [desktopNotifications, setDesktopNotifications] = useState<NotificationPermission>(() => {
+    return typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
+  })
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
+
+  // Mentions, Autocomplete & Smart Sentences State
+  const [smartSentencesOpen, setSmartSentencesOpen] = useState(true)
+  const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null)
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  // Synchronization Refs for WebSocket Events
+  const selectedConversationIdRef = useRef(selectedConversationId)
+  useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId
+  }, [selectedConversationId])
+
+  const conversationsRef = useRef(conversations)
+  useEffect(() => {
+    conversationsRef.current = conversations
+  }, [conversations])
+
+  const userRef = useRef(user)
+  useEffect(() => {
+    userRef.current = user
+  }, [user])
+
+  const audioEnabledRef = useRef(audioEnabled)
+  useEffect(() => {
+    audioEnabledRef.current = audioEnabled
+  }, [audioEnabled])
+
+  // Update window title on unread count change
+  useEffect(() => {
+    const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0)
+    if (totalUnread > 0) {
+      document.title = `(${totalUnread}) Shadow Chat`
+    } else {
+      document.title = 'Shadow Chat'
+    }
+  }, [unreadCounts])
+
+  // Clear unreads when switching to conversation
+  useEffect(() => {
+    if (selectedConversationId) {
+      setUnreadCounts((prev) => {
+        if (!prev[selectedConversationId]) return prev
+        const next = { ...prev }
+        delete next[selectedConversationId]
+        return next
+      })
+    }
+  }, [selectedConversationId])
 
   useEffect(() => {
     const oauth = parseOAuthUrlParams()
@@ -408,13 +560,57 @@ export default function App() {
         if (!active) return
         setMessages((current) => {
           if (current.some((item) => item.id === message.id || item.client_id === message.client_id)) return current
-          if (selectedConversationId !== message.conversation_id) return current
+          if (selectedConversationIdRef.current !== message.conversation_id) return current
           return [...current, message].sort(
             (left, right) =>
               new Date(left.created_at).getTime() - new Date(right.created_at).getTime(),
           )
         })
-        if (selectedConversationId === message.conversation_id) {
+
+        // Real-Time Notification Logic
+        if (userRef.current && message.sender_id !== userRef.current.id) {
+          const isMention =
+            message.content.includes('@everyone') ||
+            message.content.includes('@all') ||
+            Boolean(userRef.current.username && message.content.includes(`@${userRef.current.username}`))
+
+          // Audio chime
+          if (audioEnabledRef.current) {
+            playNotificationSound(isMention)
+          }
+
+          // Desktop notification & unread counters if background or different conversation
+          const isBackground = document.hidden || selectedConversationIdRef.current !== message.conversation_id
+          if (isBackground) {
+            setUnreadCounts((prev) => ({
+              ...prev,
+              [message.conversation_id]: (prev[message.conversation_id] || 0) + 1,
+            }))
+
+            const conv = conversationsRef.current.find((c) => c.id === message.conversation_id)
+            const senderName = message.sender_username || (conv?.kind === 'direct' ? conv.recipient_username : null) || 'Someone'
+            const convTitle = conv?.kind === 'direct' ? `@${senderName}` : conv?.title || 'channel'
+
+            const notifTitle = isMention
+              ? `@${senderName} mentioned you in #${convTitle}`
+              : `@${senderName} in #${convTitle}`
+
+            const notifBody = message.is_encrypted
+              ? '🔒 Encrypted message'
+              : message.content.length > 90
+              ? message.content.slice(0, 90) + '...'
+              : message.content
+
+            showDesktopNotification(notifTitle, {
+              body: notifBody,
+              onClick: () => {
+                setSelectedConversationId(message.conversation_id)
+              },
+            })
+          }
+        }
+
+        if (selectedConversationIdRef.current === message.conversation_id) {
           socketControlRef.current?.sendRead(message.conversation_id)
           void markMessagesRead(message.conversation_id).catch(() => {})
         }
@@ -962,7 +1158,7 @@ export default function App() {
     }
   }
 
-  function handleDraftChange(value: string) {
+  function handleDraftChange(value: string, selectionStart?: number) {
     setDraft(value)
     if (!selectedConversationId) return
 
@@ -985,6 +1181,54 @@ export default function App() {
       }
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
+
+    const cursorPos = selectionStart !== undefined ? selectionStart : value.length
+    const textBeforeCursor = value.slice(0, cursorPos)
+    const match = textBeforeCursor.match(/@([a-zA-Z0-9_-]*)$/)
+    if (match) {
+      setMentionQuery(match[1])
+      setMentionIndex(0)
+    } else {
+      setMentionQuery(null)
+    }
+  }
+
+  function handleCopyMessageText(text: string, msgId: string) {
+    void navigator.clipboard.writeText(text)
+    setCopiedMessageId(msgId)
+    setTimeout(() => setCopiedMessageId(null), 2000)
+  }
+
+  function applySmartSentence(sentence: string) {
+    setDraft(sentence)
+    setMentionQuery(null)
+    if (inputRef.current) {
+      inputRef.current.focus()
+    }
+  }
+
+  function selectMentionCandidate(candidate: { name: string }) {
+    if (inputRef.current) {
+      const cursorPos = inputRef.current.selectionStart || draft.length
+      const textBeforeCursor = draft.slice(0, cursorPos)
+      const textAfterCursor = draft.slice(cursorPos)
+      const atIndex = textBeforeCursor.lastIndexOf('@')
+      if (atIndex !== -1) {
+        const newText = textBeforeCursor.slice(0, atIndex) + `@${candidate.name} ` + textAfterCursor
+        setDraft(newText)
+        setMentionQuery(null)
+        setTimeout(() => {
+          if (inputRef.current) {
+            inputRef.current.focus()
+            const newPos = atIndex + candidate.name.length + 2
+            inputRef.current.setSelectionRange(newPos, newPos)
+          }
+        }, 10)
+        return
+      }
+    }
+    setDraft((prev) => `${prev}@${candidate.name} `)
+    setMentionQuery(null)
   }
 
   if (authLoading) {
@@ -1040,6 +1284,60 @@ export default function App() {
     const title = c.title?.toLowerCase() || ''
     return title.includes(q)
   })
+
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null || !selectedConversation) return []
+    const q = mentionQuery.toLowerCase()
+    const list: {
+      id: string
+      name: string
+      desc: string
+      isSpecial?: boolean
+      avatarUrl?: string | null
+      isOnline?: boolean
+    }[] = []
+
+    if (selectedConversation.kind === 'group') {
+      if ('everyone'.startsWith(q)) {
+        list.push({ id: 'everyone', name: 'everyone', desc: 'Notify everyone in channel', isSpecial: true })
+      }
+      if ('all'.startsWith(q)) {
+        list.push({ id: 'all', name: 'all', desc: 'Notify all channel members', isSpecial: true })
+      }
+      for (const m of members) {
+        if (user && m.user_id === user.id) continue
+        if (m.username.toLowerCase().startsWith(q)) {
+          list.push({
+            id: m.user_id,
+            name: m.username,
+            desc: m.status_message || 'Channel member',
+            avatarUrl: m.avatar_url,
+            isOnline: onlineUserIds.has(m.user_id),
+          })
+        }
+      }
+    } else {
+      if (directPartner && directPartner.toLowerCase().startsWith(q)) {
+        list.push({
+          id: selectedConversation.recipient_id || 'partner',
+          name: directPartner,
+          desc: directPartnerStatus || 'Direct chat partner',
+          avatarUrl: directPartnerAvatarUrl,
+          isOnline: isDirectPartnerOnline,
+        })
+      }
+    }
+    return list
+  }, [mentionQuery, selectedConversation, members, user, onlineUserIds, directPartner, directPartnerStatus, directPartnerAvatarUrl, isDirectPartnerOnline])
+
+  const smartSuggestions = useMemo(() => {
+    const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
+    const lastContent = lastMsg && !lastMsg.is_deleted ? (lastMsg.is_encrypted ? decryptedCache[lastMsg.id] : lastMsg.content) : null
+    return getSmartSentenceSuggestions(lastContent)
+  }, [messages, decryptedCache])
+
+  const totalUnreadDirect = directConversations.reduce((sum, c) => sum + (unreadCounts[c.id] || 0), 0)
+  const totalUnreadGroup = groupConversations.reduce((sum, c) => sum + (unreadCounts[c.id] || 0), 0)
 
   return (
     <div className="relative min-h-screen bg-[#070b14] text-slate-100 overflow-hidden">
@@ -1099,7 +1397,11 @@ export default function App() {
               >
                 <span className="text-base">👤</span>
                 <span className="mt-1 text-[11px] font-semibold">Direct</span>
-                {directConversations.length > 0 ? (
+                {totalUnreadDirect > 0 ? (
+                  <span className="mt-0.5 rounded-full bg-emerald-500 px-1.5 text-[9px] text-slate-950 font-bold shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse">
+                    {totalUnreadDirect}
+                  </span>
+                ) : directConversations.length > 0 ? (
                   <span className="mt-0.5 rounded-full bg-emerald-500/30 border border-emerald-500/50 px-1.5 text-[9px] text-emerald-200 font-bold">
                     {directConversations.length}
                   </span>
@@ -1118,7 +1420,11 @@ export default function App() {
               >
                 <span className="text-base">👥</span>
                 <span className="mt-1 text-[11px] font-semibold">Groups</span>
-                {groupConversations.length > 0 ? (
+                {totalUnreadGroup > 0 ? (
+                  <span className="mt-0.5 rounded-full bg-emerald-500 px-1.5 text-[9px] text-slate-950 font-bold shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse">
+                    {totalUnreadGroup}
+                  </span>
+                ) : groupConversations.length > 0 ? (
                   <span className="mt-0.5 rounded-full bg-emerald-500/30 border border-emerald-500/50 px-1.5 text-[9px] text-emerald-200 font-bold">
                     {groupConversations.length}
                   </span>
@@ -1291,9 +1597,16 @@ export default function App() {
                             isOnline={isPartnerOnline}
                           />
                           <div className="min-w-0 flex-1">
-                            <span className="truncate block text-xs font-semibold text-slate-200">
-                              {partnerName ? `@${partnerName}` : `Direct ${conversation.id.slice(-6)}`}
-                            </span>
+                            <div className="flex items-center justify-between">
+                              <span className="truncate block text-xs font-semibold text-slate-200">
+                                {partnerName ? `@${partnerName}` : `Direct ${conversation.id.slice(-6)}`}
+                              </span>
+                              {unreadCounts[conversation.id] > 0 ? (
+                                <span className="ml-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-slate-950 shadow-[0_0_8px_rgba(16,185,129,0.5)]">
+                                  {unreadCounts[conversation.id]}
+                                </span>
+                              ) : null}
+                            </div>
                             {conversation.recipient_status_message ? (
                               <p className="truncate text-[10px] text-slate-400 font-normal">
                                 {conversation.recipient_status_message}
@@ -1306,12 +1619,12 @@ export default function App() {
                           onClick={(e) => handleDeleteConversation(conversation.id, e)}
                           title="Delete / close direct chat"
                           disabled={deletingConversationId === conversation.id}
-                          className="opacity-0 group-hover:opacity-100 rounded-lg p-1 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 transition duration-150 cursor-pointer ml-1"
+                          className="opacity-0 group-hover:opacity-100 rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 transition duration-150 cursor-pointer ml-1"
                         >
                           {deletingConversationId === conversation.id ? (
                             <span className="text-[10px]">⏳</span>
                           ) : (
-                            <span className="text-[11px]">🗑️</span>
+                            <TrashIcon className="w-3.5 h-3.5" />
                           )}
                         </button>
                       </div>
@@ -1352,9 +1665,16 @@ export default function App() {
                             #
                           </div>
                           <div className="min-w-0 flex-1">
-                            <span className="truncate block text-xs font-semibold text-slate-200">
-                              {displayTitle}
-                            </span>
+                            <div className="flex items-center justify-between">
+                              <span className="truncate block text-xs font-semibold text-slate-200">
+                                {displayTitle}
+                              </span>
+                              {unreadCounts[conversation.id] > 0 ? (
+                                <span className="ml-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-slate-950 shadow-[0_0_8px_rgba(16,185,129,0.5)]">
+                                  {unreadCounts[conversation.id]}
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
                         </button>
                         <button
@@ -1362,12 +1682,12 @@ export default function App() {
                           onClick={(e) => handleDeleteConversation(conversation.id, e)}
                           title="Leave or delete group"
                           disabled={deletingConversationId === conversation.id}
-                          className="opacity-0 group-hover:opacity-100 rounded-lg p-1 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 transition duration-150 cursor-pointer ml-1"
+                          className="opacity-0 group-hover:opacity-100 rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 transition duration-150 cursor-pointer ml-1"
                         >
                           {deletingConversationId === conversation.id ? (
                             <span className="text-[10px]">⏳</span>
                           ) : (
-                            <span className="text-[11px]">🗑️</span>
+                            <TrashIcon className="w-3.5 h-3.5" />
                           )}
                         </button>
                       </div>
@@ -1470,12 +1790,63 @@ export default function App() {
                   disabled={deletingConversationId === selectedConversation.id}
                   className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs font-medium text-rose-300 transition hover:bg-rose-500/20 hover:border-rose-500/50 flex items-center gap-1.5 cursor-pointer"
                 >
-                  <span>🗑️</span>
+                  <TrashIcon className="w-3.5 h-3.5" />
                   <span className="hidden md:inline">
                     {selectedConversation.kind === 'direct' ? 'Delete Chat' : 'Leave Group'}
                   </span>
                 </button>
               ) : null}
+
+              {/* Desktop Notification Bell Toggle */}
+              <button
+                type="button"
+                onClick={async () => {
+                  if (desktopNotifications === 'default') {
+                    const res = await requestNotificationPermission()
+                    setDesktopNotifications(res)
+                  } else if (desktopNotifications === 'granted') {
+                    alert('Desktop notifications are active. You will receive notifications when new messages or mentions arrive.')
+                  } else {
+                    alert('Desktop notifications are currently blocked by browser permissions. Please enable notifications in your browser settings to receive alerts.')
+                  }
+                }}
+                title={
+                  desktopNotifications === 'granted'
+                    ? 'Desktop Notifications: Active'
+                    : desktopNotifications === 'denied'
+                    ? 'Desktop Notifications: Blocked in Browser'
+                    : 'Click to Enable Desktop Notifications'
+                }
+                className="relative rounded-lg border border-slate-800 bg-slate-900/80 p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+              >
+                {desktopNotifications === 'granted' ? (
+                  <>
+                    <BellIcon className="w-4 h-4 text-emerald-400" />
+                    <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                  </>
+                ) : (
+                  <BellSlashIcon className="w-4 h-4 text-slate-400" />
+                )}
+              </button>
+
+              {/* Audio Chime Mute/Unmute Toggle */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !audioEnabled
+                  setAudioEnabled(next)
+                  localStorage.setItem('shadow_audio_enabled', String(next))
+                  if (next) playNotificationSound(false)
+                }}
+                title={audioEnabled ? 'Sound Alerts: Enabled (click to mute)' : 'Sound Alerts: Muted (click to enable)'}
+                className="rounded-lg border border-slate-800 bg-slate-900/80 p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+              >
+                {audioEnabled ? (
+                  <Volume2Icon className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <VolumeXIcon className="w-4 h-4 text-slate-500" />
+                )}
+              </button>
 
               {conversationAesKey ? (
                 <button
@@ -1576,392 +1947,572 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-1 flex-col">
-              <div className="border-b border-slate-800 bg-[#0d1424]/60 px-6 py-2.5 text-xs text-slate-400 flex items-center justify-between">
-                <span>{backendStatus}</span>
-                {selectedConversation ? (
-                  <span>
-                    Created: {new Date(selectedConversation.created_at).toLocaleDateString()}
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
-                {messagesError ? <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{messagesError}</p> : null}
-                {messagesLoading && messages.length === 0 ? <p className="text-sm text-slate-500">Loading messages...</p> : null}
-                {!messagesLoading && messages.length === 0 ? (
-                  <div className="m-auto text-center">
-                    <p className="text-base text-slate-400 font-medium">No messages yet.</p>
-                    <p className="mt-1 text-xs text-slate-500">Send a message below to start chatting.</p>
+              <div className="flex flex-1 flex-col bg-[#11141c]">
+                <div className="border-b border-slate-800 bg-[#0d1017] px-6 py-2 text-xs text-slate-400 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" />
+                    <span>{backendStatus}</span>
                   </div>
-                ) : null}
-                {hasOlderMessages ? (
-                  <div className="text-center">
-                    <button onClick={() => void loadOlderMessages()} className="text-xs text-emerald-400 hover:underline" type="button">
-                      Load older messages
-                    </button>
-                  </div>
-                ) : null}
-                {messages.map((message) => {
-                  const isSelf = message.sender_id === user.id
-                  const senderMember = members.find((m) => m.user_id === message.sender_id)
-                  const senderLabel = isSelf ? 'You' : senderMember?.username || 'Member'
-                  const isDeleted = Boolean(message.is_deleted)
-                  const isEdited = Boolean(message.is_edited)
-                  const isEditing = editingMessageId === message.id
-                  const displayContent = isDeleted
-                    ? 'This message was deleted'
-                    : message.is_encrypted
-                    ? decryptedCache[message.id] || '[Decrypting...]'
-                    : message.content
+                  {selectedConversation ? (
+                    <span className="text-slate-500">
+                      Channel #{activeChannelTitle} • Created {new Date(selectedConversation.created_at).toLocaleDateString()}
+                    </span>
+                  ) : null}
+                </div>
 
-                  return (
-                    <div
-                      key={message.id}
-                      className={`group relative flex ${isSelf ? 'justify-end' : 'justify-start'}`}
-                    >
-                      {/* Floating Action Bar on Hover */}
-                      {!isDeleted && (
-                        <div
-                          className={`absolute -top-3.5 ${
-                            isSelf ? 'right-2' : 'left-2'
-                          } z-10 flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/95 px-2 py-0.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 backdrop-blur-sm`}
-                        >
-                          {(['👍', '❤️', '😂', '🔥', '🎉'] as const).map((emoji) => (
-                            <button
-                              key={emoji}
-                              type="button"
-                              title={`React ${emoji}`}
-                              onClick={() => void handleToggleReaction(message, emoji)}
-                              className="text-xs hover:scale-125 transition-transform px-0.5 cursor-pointer"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                          <div className="h-3 w-px bg-slate-700 mx-0.5" />
-                          <button
-                            type="button"
-                            title="Reply"
-                            onClick={() => setReplyingTo(message)}
-                            className="text-slate-400 hover:text-emerald-400 text-xs px-1 cursor-pointer"
-                          >
-                            ↩️
-                          </button>
-                          {isSelf && (
-                            <>
-                              <button
-                                type="button"
-                                title="Edit"
-                                onClick={() => startEditing(message)}
-                                className="text-slate-400 hover:text-teal-400 text-xs px-1 cursor-pointer"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                type="button"
-                                title="Delete"
-                                onClick={() => void handleDeleteMessage(message)}
-                                className="text-slate-400 hover:text-rose-400 text-xs px-1 cursor-pointer"
-                              >
-                                🗑️
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
+                <div className="flex flex-1 flex-col overflow-y-auto px-4 py-4 space-y-1.5 custom-scrollbar">
+                  {messagesError ? <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{messagesError}</p> : null}
+                  {messagesLoading && messages.length === 0 ? <p className="text-sm text-slate-500 text-center py-8">Loading messages...</p> : null}
+                  {!messagesLoading && messages.length === 0 ? (
+                    <div className="m-auto text-center py-12">
+                      <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-800/80 border border-slate-700 text-slate-300 text-2xl font-bold">
+                        #
+                      </div>
+                      <p className="text-base text-slate-200 font-semibold">Welcome to #{activeChannelTitle}!</p>
+                      <p className="mt-1 text-xs text-slate-400">This is the start of the #{activeChannelTitle} channel. Send a message to begin.</p>
+                    </div>
+                  ) : null}
+                  {hasOlderMessages ? (
+                    <div className="text-center py-2">
+                      <button onClick={() => void loadOlderMessages()} className="text-xs text-emerald-400 hover:underline cursor-pointer" type="button">
+                        Load older messages
+                      </button>
+                    </div>
+                  ) : null}
 
+                  {messages.map((message) => {
+                    const isSelf = message.sender_id === user.id
+                    const senderMember = members.find((m) => m.user_id === message.sender_id)
+                    const senderName = message.sender_username || senderMember?.username || (isSelf ? user.username : 'Member')
+                    const senderAvatar = message.sender_avatar_url || senderMember?.avatar_url || (isSelf ? user.avatar_url : null)
+                    const isSenderOnline = senderMember ? onlineUserIds.has(senderMember.user_id) : isSelf ? true : false
+                    const isDeleted = Boolean(message.is_deleted)
+                    const isEdited = Boolean(message.is_edited)
+                    const isEditing = editingMessageId === message.id
+                    const displayContent = isDeleted
+                      ? 'This message was deleted'
+                      : message.is_encrypted
+                      ? decryptedCache[message.id] || '[Decrypting...]'
+                      : message.content
+
+                    // Check if message mentions current user or @everyone / @all
+                    const isMentioned = !isSelf && !isDeleted && (
+                      displayContent.includes('@everyone') ||
+                      displayContent.includes('@all') ||
+                      Boolean(user.username && displayContent.includes(`@${user.username}`))
+                    )
+
+                    return (
                       <div
-                        className={`max-w-xl rounded-2xl border px-4 py-3 backdrop-blur-xl transition-all ${
-                          isDeleted
-                            ? 'border-white/5 bg-slate-900/30 text-slate-500'
-                            : isSelf
-                            ? 'border-emerald-400/30 border-t-emerald-400/50 bg-gradient-to-br from-emerald-500/20 via-teal-500/15 to-emerald-900/20 text-emerald-50 shadow-[0_8px_25px_rgba(16,185,129,0.15),inset_0_1px_1px_rgba(255,255,255,0.2)]'
-                            : 'border-white/15 border-t-white/30 bg-white/[0.07] text-slate-100 shadow-[0_8px_25px_rgba(0,0,0,0.35),inset_0_1px_1px_rgba(255,255,255,0.15)]'
+                        key={message.id}
+                        className={`group relative flex items-start gap-3.5 px-3 py-2 transition-colors rounded-lg ${
+                          isMentioned
+                            ? 'bg-amber-500/[0.08] hover:bg-amber-500/[0.12] border-l-2 border-amber-400 pl-3'
+                            : 'hover:bg-slate-800/40'
                         }`}
                       >
-                        {/* Quoted Reply Banner */}
-                        {message.reply_to && !isDeleted ? (
-                          <div className="mb-2 rounded-xl border-l-2 border-emerald-400/80 bg-white/[0.05] border border-white/10 px-2.5 py-1 text-xs backdrop-blur-md">
-                            <span className="font-semibold text-emerald-300">
-                              @{message.reply_to.sender_username || 'Member'}
-                            </span>
-                            <p className="truncate text-slate-300 mt-0.5">
-                              {message.reply_to.content}
-                            </p>
-                          </div>
-                        ) : null}
+                        {/* Avatar on Left */}
+                        <UserAvatar
+                          username={senderName}
+                          avatarUrl={senderAvatar}
+                          size="md"
+                          isOnline={isSenderOnline}
+                        />
 
-                        <div className="mb-1 flex items-center justify-between gap-4 text-[11px] text-slate-400">
-                          <div className="flex items-center gap-1.5">
-                            <UserAvatar
-                              username={isSelf ? user.username : (senderMember?.username || 'User')}
-                              avatarUrl={isSelf ? user.avatar_url : senderMember?.avatar_url}
-                              size="sm"
-                              isOnline={senderMember ? onlineUserIds.has(senderMember.user_id) : isSelf ? true : undefined}
-                            />
-                            <span className="font-semibold text-slate-300 uppercase tracking-[0.18em] text-[11px]">{senderLabel}</span>
-                          </div>
-                          <span className="flex items-center gap-1.5 lowercase">
+                        {/* Right: Message Details */}
+                        <div className="flex-1 min-w-0">
+                          {/* Quoted Reply Banner */}
+                          {message.reply_to && !isDeleted ? (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1 pl-2 border-l-2 border-slate-600">
+                              <ReplyIcon className="w-3 h-3 text-slate-500" />
+                              <span className="font-semibold text-emerald-300">
+                                @{message.reply_to.sender_username || 'Member'}
+                              </span>
+                              <span className="truncate text-slate-400 max-w-md">
+                                {message.reply_to.content}
+                              </span>
+                            </div>
+                          ) : null}
+
+                          {/* Header: Name + Timestamp + Badges */}
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-sm font-semibold text-white hover:underline cursor-pointer">
+                              {senderName}
+                              {isSelf ? <span className="ml-1 text-[11px] font-normal text-slate-400">(You)</span> : null}
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-normal">
+                              {formatDiscordTimestamp(message.created_at)}
+                            </span>
                             {isEdited && !isDeleted ? (
-                              <span className="text-[10px] text-slate-500 font-normal italic tracking-normal">(edited)</span>
+                              <span className="text-[10px] text-slate-500 italic">(edited)</span>
                             ) : null}
-                            <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            {message.is_encrypted && !isDeleted ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-mono text-teal-400/90 rounded bg-teal-500/10 px-1 py-0.5 border border-teal-500/20">
+                                🔒 E2EE
+                              </span>
+                            ) : null}
                             {isSelf && !isDeleted ? (
                               message.status === 'read' ? (
-                                <span className="text-teal-400 font-bold text-xs tracking-tighter" title="Read">✓✓</span>
+                                <span className="text-teal-400 flex items-center" title="Read">
+                                  <DoubleCheckIcon className="w-3.5 h-3.5" />
+                                </span>
                               ) : message.status === 'delivered' ? (
-                                <span className="text-slate-400 font-medium text-xs tracking-tighter" title="Delivered">✓✓</span>
+                                <span className="text-slate-400 flex items-center" title="Delivered">
+                                  <DoubleCheckIcon className="w-3.5 h-3.5" />
+                                </span>
                               ) : (
-                                <span className="text-slate-500 font-medium text-xs" title="Sent">✓</span>
+                                <span className="text-slate-500 flex items-center" title="Sent">
+                                  <CheckIcon className="w-3.5 h-3.5" />
+                                </span>
                               )
                             ) : null}
-                          </span>
-                        </div>
-
-                        {/* Content or Inline Edit Form */}
-                        {isEditing ? (
-                          <div className="mt-2 flex flex-col gap-2">
-                            <textarea
-                              value={editDraft}
-                              onChange={(e) => setEditDraft(e.target.value)}
-                              className="w-full rounded-lg border border-slate-700 bg-slate-950/80 p-2.5 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
-                              rows={2}
-                            />
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setEditingMessageId(null)}
-                                className="rounded px-2.5 py-1 text-xs text-slate-400 hover:text-slate-200"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleSaveEdit(message)}
-                                className="rounded bg-emerald-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                              >
-                                Save
-                              </button>
-                            </div>
                           </div>
-                        ) : isDeleted ? (
-                          <p className="text-sm italic text-slate-500 flex items-center gap-1.5">
-                            <span className="text-xs">🚫</span>
-                            <span>This message was deleted</span>
-                          </p>
-                        ) : (
-                          <p className="text-sm leading-6 whitespace-pre-wrap break-words">{displayContent}</p>
-                        )}
 
-                        {/* Attachments Section */}
-                        {message.attachments && message.attachments.length > 0 && !isDeleted ? (
-                          <div className="mt-2.5 flex flex-wrap gap-2">
-                            {message.attachments.map((att) => {
-                              const isImg = att.content_type.startsWith('image/')
-                              const fileUrl = getAttachmentFileUrl(att.url)
-                              if (isImg) {
+                          {/* Message Body or Inline Edit Form */}
+                          {isEditing ? (
+                            <div className="mt-2 flex flex-col gap-2">
+                              <textarea
+                                value={editDraft}
+                                onChange={(e) => setEditDraft(e.target.value)}
+                                className="w-full rounded-lg border border-slate-700 bg-slate-950/80 p-2.5 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
+                                rows={2}
+                              />
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingMessageId(null)}
+                                  className="rounded px-2.5 py-1 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSaveEdit(message)}
+                                  className="rounded bg-emerald-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-emerald-400 cursor-pointer"
+                                >
+                                  Save
+                                </button>
+                              </div>
+                            </div>
+                          ) : isDeleted ? (
+                            <p className="mt-1 text-sm italic text-slate-500 flex items-center gap-1.5">
+                              <span>🚫</span>
+                              <span>This message was deleted</span>
+                            </p>
+                          ) : (
+                            <div className="mt-0.5 text-sm text-slate-200 leading-relaxed break-words whitespace-pre-wrap">
+                              <FormattedMessageText
+                                content={displayContent}
+                                currentUsername={user.username}
+                                onMentionClick={(uname) => {
+                                  setDraft((prev) => `${prev}@${uname} `)
+                                  inputRef.current?.focus()
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {/* Attachments Section */}
+                          {message.attachments && message.attachments.length > 0 && !isDeleted ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {message.attachments.map((att) => {
+                                const isImg = att.content_type.startsWith('image/')
+                                const fileUrl = getAttachmentFileUrl(att.url)
+                                if (isImg) {
+                                  return (
+                                    <button
+                                      key={att.id}
+                                      type="button"
+                                      onClick={() => setPreviewImageUrl(fileUrl)}
+                                      className="group/img relative overflow-hidden rounded-xl border border-slate-700/80 max-w-[280px] max-h-[200px] cursor-pointer hover:border-emerald-500/50 transition"
+                                    >
+                                      <img
+                                        src={fileUrl}
+                                        alt={att.filename}
+                                        className="object-cover w-full h-full transition group-hover/img:scale-105"
+                                      />
+                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition flex items-center justify-center text-white text-xs font-medium">
+                                        🔍 Expand
+                                      </div>
+                                    </button>
+                                  )
+                                }
+                                return (
+                                  <a
+                                    key={att.id}
+                                    href={fileUrl}
+                                    download={att.filename}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs text-slate-200 hover:bg-slate-700/80 transition"
+                                  >
+                                    <PaperclipIcon className="w-4 h-4 text-emerald-400" />
+                                    <div className="text-left">
+                                      <div className="font-medium truncate max-w-[180px]">{att.filename}</div>
+                                      <div className="text-[10px] text-slate-400">
+                                        {(att.size_bytes / 1024).toFixed(1)} KB
+                                      </div>
+                                    </div>
+                                    <span className="text-xs text-emerald-400 ml-1">⬇</span>
+                                  </a>
+                                )
+                              })}
+                            </div>
+                          ) : null}
+
+                          {/* Reaction Badges */}
+                          {message.reactions && Object.keys(message.reactions).length > 0 && !isDeleted ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+                              {Object.entries(message.reactions).map(([emoji, userIds]) => {
+                                const hasReacted = userIds.includes(user.id)
                                 return (
                                   <button
-                                    key={att.id}
+                                    key={emoji}
                                     type="button"
-                                    onClick={() => setPreviewImageUrl(fileUrl)}
-                                    className="group/img relative overflow-hidden rounded-xl border border-slate-700/80 max-w-[240px] max-h-[180px] cursor-pointer hover:border-emerald-500/50 transition"
+                                    onClick={() => void handleToggleReaction(message, emoji)}
+                                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs transition cursor-pointer ${
+                                      hasReacted
+                                        ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300 font-medium'
+                                        : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700'
+                                    }`}
                                   >
-                                    <img
-                                      src={fileUrl}
-                                      alt={att.filename}
-                                      className="object-cover w-full h-full transition group-hover/img:scale-105"
-                                    />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition flex items-center justify-center text-white text-xs font-medium">
-                                      🔍 Expand
-                                    </div>
+                                    <span>{emoji}</span>
+                                    <span className="text-[11px] font-semibold">{userIds.length}</span>
                                   </button>
                                 )
-                              }
-                              return (
-                                <a
-                                  key={att.id}
-                                  href={fileUrl}
-                                  download={att.filename}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs text-slate-200 hover:bg-slate-700/80 transition"
-                                >
-                                  <span className="text-base">📄</span>
-                                  <div className="text-left">
-                                    <div className="font-medium truncate max-w-[180px]">{att.filename}</div>
-                                    <div className="text-[10px] text-slate-400">
-                                      {(att.size_bytes / 1024).toFixed(1)} KB
-                                    </div>
-                                  </div>
-                                  <span className="text-xs text-emerald-400 ml-1">⬇</span>
-                                </a>
-                              )
-                            })}
-                          </div>
-                        ) : null}
+                              })}
+                              <button
+                                type="button"
+                                onClick={() => setActiveReactionPickerMsgId(activeReactionPickerMsgId === message.id ? null : message.id)}
+                                className="rounded-md border border-slate-700/60 bg-slate-800/40 hover:bg-slate-700/60 text-slate-400 hover:text-slate-200 px-1.5 py-0.5 text-xs transition cursor-pointer"
+                                title="Add reaction"
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
 
-                        {/* Emoji Reaction Badges */}
-                        {message.reactions && Object.keys(message.reactions).length > 0 && !isDeleted ? (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {Object.entries(message.reactions).map(([emoji, userIds]) => {
-                              const hasReacted = userIds.includes(user.id)
-                              return (
+                        {/* Floating Action Bar on Hover */}
+                        {!isDeleted && (
+                          <div className="absolute right-4 -top-3.5 z-20 hidden group-hover:flex items-center gap-0.5 rounded-lg border border-slate-700 bg-slate-900/95 px-1 py-0.5 shadow-xl backdrop-blur-md">
+                            {/* Reaction Picker Button */}
+                            <div className="relative">
+                              <button
+                                type="button"
+                                title="Add Reaction"
+                                onClick={() => setActiveReactionPickerMsgId(activeReactionPickerMsgId === message.id ? null : message.id)}
+                                className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition cursor-pointer"
+                              >
+                                <SmileIcon className="w-4 h-4" />
+                              </button>
+
+                              {/* Reaction Picker Popover */}
+                              {activeReactionPickerMsgId === message.id && (
+                                <div className="absolute right-0 bottom-full mb-1 flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur-md z-30">
+                                  {(['👍', '❤️', '😂', '🔥', '🎉', '🚀', '👀', '💯', '👏', '💡'] as const).map((emoji) => (
+                                    <button
+                                      key={emoji}
+                                      type="button"
+                                      onClick={() => {
+                                        void handleToggleReaction(message, emoji)
+                                        setActiveReactionPickerMsgId(null)
+                                      }}
+                                      className="hover:scale-125 transition-transform p-1 text-sm cursor-pointer"
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Reply Button */}
+                            <button
+                              type="button"
+                              title="Reply"
+                              onClick={() => {
+                                setReplyingTo(message)
+                                inputRef.current?.focus()
+                              }}
+                              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition cursor-pointer"
+                            >
+                              <ReplyIcon className="w-4 h-4" />
+                            </button>
+
+                            {/* Copy Message Text */}
+                            <button
+                              type="button"
+                              title="Copy Text"
+                              onClick={() => handleCopyMessageText(displayContent, message.id)}
+                              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                            >
+                              {copiedMessageId === message.id ? (
+                                <CheckIcon className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <CopyIcon className="w-4 h-4" />
+                              )}
+                            </button>
+
+                            {/* Edit & Delete (Self only) */}
+                            {isSelf && (
+                              <>
+                                <div className="h-3 w-px bg-slate-700 mx-0.5" />
                                 <button
-                                  key={emoji}
                                   type="button"
-                                  onClick={() => void handleToggleReaction(message, emoji)}
-                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition cursor-pointer ${
-                                    hasReacted
-                                      ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300 font-medium'
-                                      : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700'
-                                  }`}
+                                  title="Edit Message"
+                                  onClick={() => startEditing(message)}
+                                  className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-teal-400 transition cursor-pointer"
                                 >
-                                  <span>{emoji}</span>
-                                  <span className="text-[11px]">{userIds.length}</span>
+                                  <PencilIcon className="w-4 h-4" />
                                 </button>
-                              )
-                            })}
+                                <button
+                                  type="button"
+                                  title="Delete Message"
+                                  onClick={() => void handleDeleteMessage(message)}
+                                  className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                >
+                                  <TrashIcon className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
                           </div>
-                        ) : null}
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
 
-                        {message.is_encrypted && !isDeleted ? (
-                          <div className="mt-1.5 flex items-center justify-end gap-1 text-[10px] text-teal-400/90 font-medium">
-                            <span>🔒 E2EE</span>
-                          </div>
-                        ) : null}
+                {/* Ephemeral Typing Indicators Banner */}
+                {activeTypingNames.length > 0 ? (
+                  <div className="flex items-center gap-2 border-t border-slate-800 bg-[#0d1017] px-6 py-1.5 text-xs text-teal-300">
+                    <div className="flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce [animation-delay:0.15s]" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce [animation-delay:0.3s]" />
+                    </div>
+                    <span className="italic">
+                      {activeTypingNames.join(', ')} {activeTypingNames.length === 1 ? 'is' : 'are'} typing...
+                    </span>
+                  </div>
+                ) : null}
+
+                {/* Message Draft Input Area (Discord Style) */}
+                <div className="border-t border-slate-800 bg-[#0d1017] p-4">
+                  {/* Replying Banner */}
+                  {replyingTo ? (
+                    <div className="flex items-center justify-between rounded-t-xl bg-slate-800/80 px-4 py-2 text-xs text-slate-300 border border-b-0 border-slate-700/80 mb-0">
+                      <span className="flex items-center gap-1.5 truncate">
+                        <ReplyIcon className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400 font-medium">Replying to</span>
+                        <span className="font-semibold text-slate-200">
+                          @{members.find((m) => m.user_id === replyingTo.sender_id)?.username || replyingTo.sender_username || 'User'}
+                        </span>
+                        <span className="truncate text-slate-400 max-w-[280px]">
+                          — {replyingTo.is_encrypted ? decryptedCache[replyingTo.id] || '[Encrypted]' : replyingTo.content}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReplyingTo(null)}
+                        className="text-slate-400 hover:text-white ml-2 cursor-pointer"
+                      >
+                        <CloseIcon className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {/* Pending Attachments List */}
+                  {pendingAttachments.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 px-3 py-2 bg-slate-800/50 border border-b-0 border-slate-700/80 rounded-t-xl">
+                      {pendingAttachments.map((att) => (
+                        <div
+                          key={att.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/90 px-2.5 py-1 text-xs text-slate-300"
+                        >
+                          <PaperclipIcon className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="truncate max-w-[160px]">{att.filename}</span>
+                          <span className="text-[10px] text-slate-400">
+                            ({(att.size_bytes / 1024).toFixed(0)} KB)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPendingAttachments((prev) => prev.filter((item) => item.id !== att.id))
+                            }
+                            className="ml-1 text-slate-400 hover:text-rose-400 font-bold cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {/* Mention Autocomplete Popover */}
+                  {mentionQuery !== null && mentionCandidates.length > 0 && (
+                    <div className="rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl mb-2 max-h-56 overflow-y-auto custom-scrollbar">
+                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                        <AtSignIcon className="w-3 h-3 text-emerald-400" />
+                        Members &amp; Roles matching @{mentionQuery}
+                      </div>
+                      <div className="mt-1 space-y-0.5">
+                        {mentionCandidates.map((cand, idx) => {
+                          const isSelected = idx === mentionIndex
+                          return (
+                            <button
+                              key={cand.id}
+                              type="button"
+                              onClick={() => selectMentionCandidate(cand)}
+                              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs transition cursor-pointer ${
+                                isSelected
+                                  ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40'
+                                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                              }`}
+                            >
+                              {cand.isSpecial ? (
+                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/40">
+                                  @
+                                </div>
+                              ) : (
+                                <UserAvatar
+                                  username={cand.name}
+                                  avatarUrl={cand.avatarUrl}
+                                  size="sm"
+                                  isOnline={cand.isOnline}
+                                />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="font-semibold truncate">@{cand.name}</div>
+                                <div className="text-[10px] text-slate-400 truncate">{cand.desc}</div>
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-mono">Tab/Enter</span>
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
-                  )
-                })}
-              </div>
+                  )}
 
-              {/* Ephemeral Typing Indicators Banner */}
-              {activeTypingNames.length > 0 ? (
-                <div className="flex items-center gap-2 border-t border-white/10 bg-[#0c1322]/60 backdrop-blur-md px-6 py-2 text-xs text-teal-300">
-                  <div className="flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce" />
-                    <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce [animation-delay:0.15s]" />
-                    <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-bounce [animation-delay:0.3s]" />
-                  </div>
-                  <span className="italic">
-                    {activeTypingNames.join(', ')} {activeTypingNames.length === 1 ? 'is' : 'are'} typing...
-                  </span>
-                </div>
-              ) : null}
+                  {/* Smart Sentences Quick Bar */}
+                  {smartSentencesOpen ? (
+                    <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs custom-scrollbar">
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 whitespace-nowrap pl-1">
+                        <SparklesIcon className="w-3.5 h-3.5" />
+                        Smart Suggestions:
+                      </span>
+                      {smartSuggestions.map((suggestion, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => applySmartSentence(suggestion)}
+                          className="rounded-full border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 hover:border-emerald-500/50 hover:text-emerald-300 px-3 py-1 text-slate-300 whitespace-nowrap transition cursor-pointer text-xs"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
 
-              {/* Message Draft Input Area */}
-              <div className="border-t border-white/10 bg-[#090e1a]/50 p-4 backdrop-blur-2xl">
-                {/* Replying Banner */}
-                {replyingTo ? (
-                  <div className="flex items-center justify-between rounded-t-2xl bg-white/[0.04] px-4 py-2.5 text-xs text-slate-300 border border-b-0 border-white/10 backdrop-blur-md">
-                    <span className="flex items-center gap-1.5 truncate">
-                      <span className="text-emerald-400 font-medium">↩ Replying to</span>
-                      <span className="font-semibold text-slate-200">
-                        @{members.find((m) => m.user_id === replyingTo.sender_id)?.username || 'User'}
-                      </span>
-                      <span className="truncate text-slate-400 max-w-[280px]">
-                        — {replyingTo.is_encrypted ? decryptedCache[replyingTo.id] || '[Encrypted]' : replyingTo.content}
-                      </span>
-                    </span>
+                  {/* Input bar */}
+                  <div
+                    className={`flex items-center gap-2.5 rounded-xl border border-slate-700/80 bg-slate-800/70 px-3.5 py-2.5 shadow-inner focus-within:border-emerald-500/60 focus-within:bg-slate-800/90 transition-all ${
+                      replyingTo || pendingAttachments.length > 0 ? 'rounded-t-none' : ''
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          void handleAttachmentSelect(file)
+                          e.target.value = ''
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        setCreateError('')
+                        setCreateModalOpen(true)
+                      }}
+                      type="button"
+                      title="Create new conversation"
+                      className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-slate-700/60 transition cursor-pointer"
+                    >
+                      <span className="text-base font-bold leading-none">+</span>
+                    </button>
                     <button
                       type="button"
-                      onClick={() => setReplyingTo(null)}
-                      className="text-slate-400 hover:text-white ml-2 text-xs"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={!selectedConversationId || uploadingAttachment}
+                      title="Attach file or image (max 15MB)"
+                      className="rounded-lg p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-700/60 disabled:opacity-50 transition cursor-pointer"
                     >
-                      ✕
+                      <PaperclipIcon className="w-4 h-4" />
+                    </button>
+                    <input
+                      ref={inputRef}
+                      value={draft}
+                      onChange={(event) => handleDraftChange(event.target.value, event.target.selectionStart || undefined)}
+                      onKeyDown={(e) => {
+                        if (mentionCandidates.length > 0 && mentionQuery !== null) {
+                          if (e.key === 'ArrowDown') {
+                            e.preventDefault()
+                            setMentionIndex((prev) => (prev + 1) % mentionCandidates.length)
+                            return
+                          }
+                          if (e.key === 'ArrowUp') {
+                            e.preventDefault()
+                            setMentionIndex((prev) => (prev - 1 + mentionCandidates.length) % mentionCandidates.length)
+                            return
+                          }
+                          if (e.key === 'Enter' || e.key === 'Tab') {
+                            e.preventDefault()
+                            const selected = mentionCandidates[mentionIndex] || mentionCandidates[0]
+                            if (selected) {
+                              selectMentionCandidate(selected)
+                            }
+                            return
+                          }
+                          if (e.key === 'Escape') {
+                            e.preventDefault()
+                            setMentionQuery(null)
+                            return
+                          }
+                        }
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          void handleSend()
+                        }
+                      }}
+                      disabled={!selectedConversationId || sending}
+                      className="flex-1 bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+                      placeholder={selectedConversationId ? `Message #${activeChannelTitle}... (Use @ to mention)` : 'Select or create a conversation first'}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setSmartSentencesOpen(!smartSentencesOpen)}
+                      title="Toggle Smart Suggestions"
+                      className={`rounded-lg p-1.5 transition cursor-pointer ${
+                        smartSentencesOpen ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                      }`}
+                    >
+                      <SparklesIcon className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => void handleSend()}
+                      disabled={!selectedConversationId || (!draft.trim() && pendingAttachments.length === 0) || sending}
+                      type="button"
+                      className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <span>{sending ? 'Sending...' : 'Send'}</span>
+                      <SendIcon className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                ) : null}
-
-                {/* Pending Attachments List */}
-                {pendingAttachments.length > 0 ? (
-                  <div className="flex flex-wrap gap-2 px-3 py-2 bg-white/[0.03] border border-b-0 border-white/10 rounded-t-2xl backdrop-blur-md">
-                    {pendingAttachments.map((att) => (
-                      <div
-                        key={att.id}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300"
-                      >
-                        <span>📎</span>
-                        <span className="truncate max-w-[160px]">{att.filename}</span>
-                        <span className="text-[10px] text-slate-400">
-                          ({(att.size_bytes / 1024).toFixed(0)} KB)
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPendingAttachments((prev) => prev.filter((item) => item.id !== att.id))
-                          }
-                          className="ml-1 text-slate-400 hover:text-rose-400 font-bold"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-
-                <div
-                  className={`flex items-center gap-3 border border-white/15 border-t-white/30 bg-white/[0.06] backdrop-blur-2xl px-3.5 py-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] focus-within:border-emerald-400/60 focus-within:bg-white/[0.1] focus-within:shadow-[0_0_30px_rgba(16,185,129,0.25)] transition-all ${
-                    replyingTo || pendingAttachments.length > 0 ? 'rounded-b-2xl' : 'rounded-2xl'
-                  }`}
-                >
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) {
-                        void handleAttachmentSelect(file)
-                        e.target.value = ''
-                      }
-                    }}
-                  />
-                  <button
-                    onClick={() => {
-                      setCreateError('')
-                      setCreateModalOpen(true)
-                    }}
-                    type="button"
-                    title="Create new conversation"
-                    className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-slate-200 hover:bg-white/10 hover:text-white transition"
-                  >
-                    +
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={!selectedConversationId || uploadingAttachment}
-                    title="Attach file or image (max 15MB)"
-                    className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-50 transition"
-                  >
-                    {uploadingAttachment ? '⏳' : '📎'}
-                  </button>
-                  <input
-                    value={draft}
-                    onChange={(event) => handleDraftChange(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault()
-                        void handleSend()
-                      }
-                    }}
-                    disabled={!selectedConversationId || sending}
-                    className="flex-1 bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
-                    placeholder={selectedConversationId ? `Message ${activeChannelTitle}...` : 'Select or create a conversation first'}
-                  />
-                  <button
-                    onClick={() => void handleSend()}
-                    disabled={!selectedConversationId || (!draft.trim() && pendingAttachments.length === 0) || sending}
-                    type="button"
-                    className="rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)] transition hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {sending ? 'Sending...' : 'Send'}
-                  </button>
                 </div>
               </div>
-            </div>
           )}
 
             {/* Participants Sidebar */}

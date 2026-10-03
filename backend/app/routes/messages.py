@@ -71,6 +71,8 @@ class MessageReply(BaseModel):
     id: str
     conversation_id: str
     sender_id: str
+    sender_username: str | None = None
+    sender_avatar_url: str | None = None
     content: str
     client_id: str
     nonce: str | None = None
@@ -109,6 +111,8 @@ def serialize_message(document: dict[str, Any]) -> MessageReply:
         id=str(document["_id"]),
         conversation_id=str(document["conversation_id"]),
         sender_id=str(document["sender_id"]),
+        sender_username=document.get("sender_username"),
+        sender_avatar_url=document.get("sender_avatar_url"),
         content=document["content"],
         client_id=document.get("client_id", ""),
         nonce=document.get("nonce"),
@@ -160,9 +164,15 @@ async def create_message(
 
     raw_attachments = [a.model_dump() for a in payload.attachments]
 
+    sender_doc = await database.users.find_one({"_id": ObjectId(user.id)}) if hasattr(database, "users") else None
+    sender_uname = sender_doc.get("username", user.username) if sender_doc else user.username
+    sender_avatar = sender_doc.get("avatar_url") if sender_doc else None
+
     document = {
         "conversation_id": conversation["_id"],
         "sender_id": ObjectId(user.id),
+        "sender_username": sender_uname,
+        "sender_avatar_url": sender_avatar,
         "content": payload.content,
         "nonce": payload.nonce,
         "is_encrypted": payload.is_encrypted,

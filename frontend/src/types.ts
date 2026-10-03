@@ -95,6 +95,8 @@ export type Message = {
   id: string
   conversation_id: string
   sender_id: string
+  sender_username?: string | null
+  sender_avatar_url?: string | null
   content: string
   client_id: string
   nonce?: string | null
