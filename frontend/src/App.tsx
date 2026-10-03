@@ -347,17 +347,47 @@ export default function App() {
     }
   }, [unreadCounts])
 
+  // Helper to mark conversation read and wipe its unread badge
+  const clearCurrentUnreads = (convId = selectedConversationId) => {
+    if (!convId) return
+    setUnreadCounts((prev) => {
+      if (!prev[convId]) return prev
+      const next = { ...prev }
+      delete next[convId]
+      return next
+    })
+    void markMessagesRead(convId).catch(() => {})
+  }
+
   // Clear unreads when switching to conversation
   useEffect(() => {
     if (selectedConversationId) {
-      setUnreadCounts((prev) => {
-        if (!prev[selectedConversationId]) return prev
-        const next = { ...prev }
-        delete next[selectedConversationId]
-        return next
-      })
+      clearCurrentUnreads(selectedConversationId)
     }
   }, [selectedConversationId])
+
+  // Clear unreads when returning to tab or window focus
+  useEffect(() => {
+    const handleFocusOrVisible = () => {
+      if (!document.hidden && selectedConversationId) {
+        clearCurrentUnreads(selectedConversationId)
+      }
+    }
+
+    window.addEventListener('focus', handleFocusOrVisible)
+    document.addEventListener('visibilitychange', handleFocusOrVisible)
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisible)
+      document.removeEventListener('visibilitychange', handleFocusOrVisible)
+    }
+  }, [selectedConversationId])
+
+  // Clear unreads whenever active conversation messages update while viewing
+  useEffect(() => {
+    if (!document.hidden && selectedConversationId && messages.length > 0) {
+      clearCurrentUnreads(selectedConversationId)
+    }
+  }, [messages.length, selectedConversationId])
 
   useEffect(() => {
     const oauth = parseOAuthUrlParams()
@@ -665,6 +695,14 @@ export default function App() {
         if (selectedConversationIdRef.current === message.conversation_id) {
           socketControlRef.current?.sendRead(message.conversation_id)
           void markMessagesRead(message.conversation_id).catch(() => {})
+          if (!document.hidden) {
+            setUnreadCounts((prev) => {
+              if (!prev[message.conversation_id]) return prev
+              const next = { ...prev }
+              delete next[message.conversation_id]
+              return next
+            })
+          }
         }
       },
       onStatus: setSocketStatus,
@@ -1013,6 +1051,7 @@ export default function App() {
   async function handleSend() {
     const content = draft.trim()
     if (!selectedConversationId || (!content && pendingAttachments.length === 0) || sending) return
+    clearCurrentUnreads(selectedConversationId)
 
     // Clear typing indicator on send
     if (isTypingRef.current && selectedConversationId) {
@@ -2607,6 +2646,8 @@ export default function App() {
                         }
                       }}
                       disabled={!selectedConversationId || sending}
+                      onFocus={() => clearCurrentUnreads(selectedConversationId)}
+                      onClick={() => clearCurrentUnreads(selectedConversationId)}
                       className="flex-1 bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
                       placeholder={selectedConversationId ? `Message #${activeChannelTitle}... (Use @ to mention)` : 'Select or create a conversation first'}
                     />
