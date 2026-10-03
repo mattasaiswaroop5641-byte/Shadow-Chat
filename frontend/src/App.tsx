@@ -7,6 +7,7 @@ import {
   exportPublicKeySpki,
   getOrGenerateIdentityKeyPair,
   importPublicKeySpki,
+  clearConversationKeyCache,
 } from './lib/crypto'
 import {
   ApiError,
@@ -402,6 +403,25 @@ export default function App() {
     }
   }, [user])
 
+  // Proactively fetch & verify latest peer public key whenever direct conversation is selected
+  useEffect(() => {
+    if (!selectedConversation || selectedConversation.kind !== 'direct' || !user) return
+    const peer = members.find((m) => m.user_id !== user.id)
+    if (!peer?.user_id) return
+    let active = true
+    getUserPublicKey(peer.user_id).then((freshKey) => {
+      if (active && freshKey && freshKey !== peer.public_key) {
+        setMembers((prev) =>
+          prev.map((m) => (m.user_id === peer.user_id ? { ...m, public_key: freshKey } : m)),
+        )
+        clearConversationKeyCache(selectedConversation.id)
+      }
+    }).catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [selectedConversation?.id, user?.id])
+
   // Derive conversation key & safety number for Direct Messages
   useEffect(() => {
     if (!user || !myKeyPair || !myPublicKeySpki || !selectedConversation) {
@@ -418,7 +438,7 @@ export default function App() {
         let active = true
         importPublicKeySpki(peerKeySpki)
           .then((peerPubKey) =>
-            deriveConversationKey(myKeyPair.privateKey, peerPubKey, selectedConversation.id),
+            deriveConversationKey(myKeyPair.privateKey, peerPubKey, selectedConversation.id, peerKeySpki),
           )
           .then(async (aesKey) => {
             if (!active) return
@@ -458,12 +478,12 @@ export default function App() {
     }
   }, [user, myKeyPair, myPublicKeySpki, selectedConversation, members])
 
-  // Decrypt encrypted messages
+  // Decrypt encrypted messages with auto-recovery on key rotation
   useEffect(() => {
     if (!conversationAesKey || messages.length === 0) return
     let active = true
     const toDecrypt = messages.filter(
-      (m) => m.is_encrypted && m.nonce && !decryptedCache[m.id],
+      (m) => m.is_encrypted && m.nonce && (!decryptedCache[m.id] || decryptedCache[m.id] === '[Unable to decrypt: key mismatch]'),
     )
     if (toDecrypt.length === 0) return
 
@@ -473,6 +493,31 @@ export default function App() {
           const text = await decryptMessage(m.content, m.nonce!, conversationAesKey)
           return { id: m.id, text }
         } catch {
+          // If direct decryption failed with current key, check if sender's public key was rotated
+          if (m.sender_id && myKeyPair && selectedConversation) {
+            try {
+              const freshKey = await getUserPublicKey(m.sender_id)
+              if (freshKey) {
+                const importedKey = await importPublicKeySpki(freshKey)
+                const freshAesKey = await deriveConversationKey(
+                  myKeyPair.privateKey,
+                  importedKey,
+                  selectedConversation.id,
+                  freshKey,
+                )
+                const text = await decryptMessage(m.content, m.nonce!, freshAesKey)
+                if (active) {
+                  setConversationAesKey(freshAesKey)
+                  setMembers((prev) =>
+                    prev.map((mem) => (mem.user_id === m.sender_id ? { ...mem, public_key: freshKey } : mem)),
+                  )
+                }
+                return { id: m.id, text }
+              }
+            } catch {
+              // fall through to mismatch error
+            }
+          }
           return { id: m.id, text: '[Unable to decrypt: key mismatch]' }
         }
       }),
@@ -490,7 +535,7 @@ export default function App() {
     return () => {
       active = false
     }
-  }, [messages, conversationAesKey, decryptedCache])
+  }, [messages, conversationAesKey, decryptedCache, myKeyPair, selectedConversation])
 
 
   useEffect(() => {
@@ -921,6 +966,47 @@ export default function App() {
       setMessagesError(error instanceof ApiError ? error.message : 'Unable to load older messages.')
     } finally {
       setMessagesLoading(false)
+    }
+  }
+
+  async function handleResyncKeys() {
+    if (!selectedConversation || selectedConversation.kind !== 'direct' || !user || !myKeyPair) return
+    const peer = members.find((m) => m.user_id !== user.id)
+    if (!peer?.user_id) return
+
+    try {
+      clearConversationKeyCache(selectedConversation.id)
+      const freshKey = await getUserPublicKey(peer.user_id)
+      if (freshKey) {
+        const imported = await importPublicKeySpki(freshKey)
+        const newAes = await deriveConversationKey(
+          myKeyPair.privateKey,
+          imported,
+          selectedConversation.id,
+          freshKey,
+        )
+        setConversationAesKey(newAes)
+        setMembers((prev) =>
+          prev.map((m) => (m.user_id === peer.user_id ? { ...m, public_key: freshKey } : m)),
+        )
+        const safety = await calculateSafetyNumber(myPublicKeySpki || '', freshKey)
+        setSafetyNumber(safety)
+      }
+      if (myPublicKeySpki) {
+        void uploadPublicKey(myPublicKeySpki).catch(() => {})
+      }
+      // Reset failed cache entries to trigger immediate re-decryption
+      setDecryptedCache((prev) => {
+        const next = { ...prev }
+        for (const m of messages) {
+          if (next[m.id] === '[Unable to decrypt: key mismatch]') {
+            delete next[m.id]
+          }
+        }
+        return next
+      })
+    } catch (err) {
+      console.error('Failed to resync keys:', err)
     }
   }
 
@@ -1856,20 +1942,35 @@ export default function App() {
               </button>
 
               {conversationAesKey ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSafetyModalOpen(true)}
+                    title="End-to-End Encrypted. Click to verify Safety Number."
+                    className="inline-flex items-center gap-1.5 rounded-full border border-teal-500/40 bg-teal-500/10 px-3 py-1 text-xs font-medium text-teal-300 hover:bg-teal-500/20 transition cursor-pointer"
+                  >
+                    <span className="text-xs">🔒</span>
+                    <span>E2EE Active</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleResyncKeys()}
+                    title="Re-sync encryption keys with partner"
+                    className="inline-flex items-center justify-center h-6 w-6 rounded-full border border-slate-700 bg-slate-800/80 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/40 transition cursor-pointer text-xs"
+                  >
+                    🔄
+                  </button>
+                </div>
+              ) : selectedConversation?.kind === 'direct' ? (
                 <button
                   type="button"
-                  onClick={() => setSafetyModalOpen(true)}
-                  title="End-to-End Encrypted. Click to verify Safety Number."
-                  className="inline-flex items-center gap-1.5 rounded-full border border-teal-500/40 bg-teal-500/10 px-3 py-1 text-xs font-medium text-teal-300 hover:bg-teal-500/20 transition cursor-pointer"
+                  onClick={() => void handleResyncKeys()}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs text-amber-300 hover:bg-amber-500/20 transition cursor-pointer"
+                  title="Click to re-sync encryption keys"
                 >
-                  <span className="text-xs">🔒</span>
-                  <span>E2EE Active</span>
+                  <span className="text-xs">🔄</span>
+                  <span>Sync Keys</span>
                 </button>
-              ) : selectedConversation?.kind === 'direct' ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1 text-xs text-slate-400">
-                  <span className="text-xs">🔓</span>
-                  <span>Syncing Keys...</span>
-                </span>
               ) : null}
 
               <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
@@ -2106,6 +2207,17 @@ export default function App() {
                               <span>🚫</span>
                               <span>This message was deleted</span>
                             </p>
+                          ) : displayContent === '[Unable to decrypt: key mismatch]' ? (
+                            <div className="mt-1 inline-flex items-center gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300">
+                              <span>🔒 Key updated</span>
+                              <button
+                                type="button"
+                                onClick={() => void handleResyncKeys()}
+                                className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-2 py-0.5 font-semibold text-amber-200 hover:bg-amber-500/30 transition cursor-pointer"
+                              >
+                                <span>🔄 Re-sync Keys</span>
+                              </button>
+                            </div>
                           ) : (
                             <div className="mt-0.5 text-sm text-slate-200 leading-relaxed break-words whitespace-pre-wrap">
                               <FormattedMessageText

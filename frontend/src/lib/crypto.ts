@@ -45,16 +45,49 @@ function openDatabase(): Promise<IDBDatabase> {
   })
 }
 
+interface StoredKeysRecord {
+  publicKeyJwk?: JsonWebKey
+  privateKeyJwk?: JsonWebKey
+  publicKey?: CryptoKey
+  privateKey?: CryptoKey
+}
+
 async function loadKeyPairFromIndexedDB(userId: string): Promise<CryptoKeyPair | null> {
   try {
     const db = await openDatabase()
-    return new Promise((resolve, reject) => {
+    const raw = await new Promise<StoredKeysRecord | null>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly')
       const store = tx.objectStore(STORE_NAME)
       const request = store.get(userId)
       request.onsuccess = () => resolve(request.result || null)
       request.onerror = () => reject(request.error)
     })
+    if (!raw) return null
+
+    // 1. Preferred portable JWK format
+    if (raw.publicKeyJwk && raw.privateKeyJwk) {
+      const publicKey = await window.crypto.subtle.importKey(
+        'jwk',
+        raw.publicKeyJwk,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        [],
+      )
+      const privateKey = await window.crypto.subtle.importKey(
+        'jwk',
+        raw.privateKeyJwk,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        ['deriveKey', 'deriveBits'],
+      )
+      return { publicKey, privateKey }
+    }
+
+    // 2. Backward compatibility with directly stored CryptoKeys
+    if (raw.publicKey && raw.privateKey) {
+      return { publicKey: raw.publicKey, privateKey: raw.privateKey }
+    }
+    return null
   } catch {
     return null
   }
@@ -63,15 +96,17 @@ async function loadKeyPairFromIndexedDB(userId: string): Promise<CryptoKeyPair |
 async function saveKeyPairToIndexedDB(userId: string, keyPair: CryptoKeyPair): Promise<void> {
   try {
     const db = await openDatabase()
+    const publicKeyJwk = await window.crypto.subtle.exportKey('jwk', keyPair.publicKey)
+    const privateKeyJwk = await window.crypto.subtle.exportKey('jwk', keyPair.privateKey)
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)
-      const request = store.put(keyPair, userId)
+      const request = store.put({ publicKeyJwk, privateKeyJwk }, userId)
       request.onsuccess = () => resolve()
       request.onerror = () => reject(request.error)
     })
-  } catch {
-    // Gracefully handle environments with restricted IndexedDB
+  } catch (err) {
+    console.warn('Unable to persist keypair to IndexedDB:', err)
   }
 }
 
@@ -117,8 +152,9 @@ export async function deriveConversationKey(
   myPrivateKey: CryptoKey,
   theirPublicKey: CryptoKey,
   conversationId: string,
+  theirKeySpki?: string,
 ): Promise<CryptoKey> {
-  const cacheKey = `${conversationId}`
+  const cacheKey = theirKeySpki ? `${conversationId}:${theirKeySpki}` : `${conversationId}`
   const cached = conversationKeyCache.get(cacheKey)
   if (cached) return cached
 
@@ -155,6 +191,18 @@ export async function deriveConversationKey(
 
   conversationKeyCache.set(cacheKey, derivedKey)
   return derivedKey
+}
+
+export function clearConversationKeyCache(conversationId?: string): void {
+  if (conversationId) {
+    for (const key of Array.from(conversationKeyCache.keys())) {
+      if (key === conversationId || key.startsWith(`${conversationId}:`)) {
+        conversationKeyCache.delete(key)
+      }
+    }
+  } else {
+    conversationKeyCache.clear()
+  }
 }
 
 // -----------------------------------------------------------------------------
