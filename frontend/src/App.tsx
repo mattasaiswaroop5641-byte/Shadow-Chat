@@ -38,6 +38,7 @@ import {
   uploadPublicKey,
   verifyEmail,
   deleteConversation,
+  parseOAuthUrlParams,
 } from './lib/api'
 import type {
   Attachment,
@@ -195,8 +196,17 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<'all' | 'direct' | 'group'>('all')
   const [chatSearchQuery, setChatSearchQuery] = useState('')
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null)
+  const [oauthError, setOauthError] = useState<string | null>(null)
+  const [oauthConfigNeeded, setOauthConfigNeeded] = useState<string | null>(null)
 
   useEffect(() => {
+    const oauth = parseOAuthUrlParams()
+    if (oauth.authError) {
+      setOauthError(oauth.authError)
+    }
+    if (oauth.oauthConfigNeeded) {
+      setOauthConfigNeeded(oauth.oauthConfigNeeded)
+    }
     restoreSession().then(setUser).finally(() => setAuthLoading(false))
     fetchHealth()
       .then((result) => setBackendStatus(`${result.status} • ${result.service}`))
@@ -982,7 +992,13 @@ export default function App() {
   }
 
   if (!user) {
-    return <LandingPage onAuthenticated={setUser} />
+    return (
+      <LandingPage
+        onAuthenticated={setUser}
+        initialError={oauthError}
+        initialOAuthConfigNeeded={oauthConfigNeeded}
+      />
+    )
   }
 
   const directPartnerMember = selectedConversation?.kind === 'direct'

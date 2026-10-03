@@ -1,5 +1,16 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { ApiError, fetchHealth, login, register, resendVerification, verifyEmail } from './lib/api'
+import {
+  ApiError,
+  devOAuthLogin,
+  fetchHealth,
+  fetchOAuthProviders,
+  getOAuthLoginUrl,
+  login,
+  parseOAuthUrlParams,
+  register,
+  resendVerification,
+  verifyEmail,
+} from './lib/api'
 import type { User } from './types'
 
 type AuthMode = 'login' | 'register'
@@ -8,11 +19,15 @@ export function GlassAuthModal({
   isOpen,
   onClose,
   initialMode = 'login',
+  initialError,
+  initialOAuthConfigNeeded,
   onAuthenticated,
 }: {
   isOpen: boolean
   onClose: () => void
   initialMode?: AuthMode
+  initialError?: string | null
+  initialOAuthConfigNeeded?: string | null
   onAuthenticated: (user: User) => void
 }) {
   const [mode, setMode] = useState<AuthMode>(initialMode)
@@ -22,14 +37,62 @@ export function GlassAuthModal({
   const [code, setCode] = useState('')
   const [verificationRequired, setVerificationRequired] = useState(false)
   const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(initialError || '')
   const [busy, setBusy] = useState(false)
+  const [oauthLoading, setOauthLoading] = useState<string | null>(null)
+  const [oauthProviders, setOauthProviders] = useState<{ google: boolean; github: boolean; microsoft: boolean }>({
+    google: false,
+    github: false,
+    microsoft: false,
+  })
+  const [devPromptProvider, setDevPromptProvider] = useState<'google' | 'github' | 'microsoft' | null>(
+    (initialOAuthConfigNeeded as 'google' | 'github' | 'microsoft') || null,
+  )
 
   useEffect(() => {
     setMode(initialMode)
+    setError(initialError || '')
+    setMessage('')
+    if (initialOAuthConfigNeeded) {
+      setDevPromptProvider(initialOAuthConfigNeeded as 'google' | 'github' | 'microsoft')
+    }
+  }, [initialMode, isOpen, initialError, initialOAuthConfigNeeded])
+
+  useEffect(() => {
+    fetchOAuthProviders().then(setOauthProviders).catch(() => {})
+  }, [])
+
+  async function handleOAuthClick(provider: 'google' | 'github' | 'microsoft') {
     setError('')
     setMessage('')
-  }, [initialMode, isOpen])
+    setOauthLoading(provider)
+    try {
+      if (oauthProviders[provider]) {
+        window.location.href = getOAuthLoginUrl(provider)
+      } else {
+        setDevPromptProvider(provider)
+        setOauthLoading(null)
+      }
+    } catch (err: any) {
+      setError(err?.message || `Failed to initiate ${provider} authentication`)
+      setOauthLoading(null)
+    }
+  }
+
+  async function handleDevLoginConfirm() {
+    if (!devPromptProvider) return
+    setBusy(true)
+    setError('')
+    try {
+      const user = await devOAuthLogin(devPromptProvider)
+      onAuthenticated(user)
+    } catch (err: any) {
+      setError(err instanceof ApiError ? err.message : 'Dev authentication failed.')
+    } finally {
+      setBusy(false)
+      setDevPromptProvider(null)
+    }
+  }
 
   if (!isOpen) return null
 
@@ -232,7 +295,134 @@ export function GlassAuthModal({
               </button>
             </form>
           ) : (
-            <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
+            <div>
+              {/* Account Switcher Header Link */}
+              <div className="mt-4 flex items-center justify-between text-xs pb-3 border-b border-white/10">
+                <span className="text-slate-300 font-medium">
+                  {mode === 'login' ? "Don't have an account?" : "Already have an account?"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode(mode === 'login' ? 'register' : 'login')
+                    setError('')
+                    setMessage('')
+                    setDevPromptProvider(null)
+                  }}
+                  className="font-bold text-emerald-400 hover:text-emerald-300 hover:underline transition cursor-pointer"
+                >
+                  {mode === 'login' ? 'Sign Up' : 'Log In'}
+                </button>
+              </div>
+
+              {/* Social OAuth Buttons Stack */}
+              <div className="mt-4 space-y-2.5">
+                {/* Google Button */}
+                <button
+                  type="button"
+                  onClick={() => handleOAuthClick('google')}
+                  disabled={busy || oauthLoading !== null}
+                  className="w-full flex items-center justify-center gap-3 rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.07] hover:bg-white/[0.12] hover:border-white/35 text-white font-semibold py-3 px-4 shadow-[0_4px_16px_rgba(0,0,0,0.3),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-xl transition hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+                >
+                  <svg className="h-5 w-5 flex-shrink-0" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                  </svg>
+                  <span className="text-sm font-semibold">
+                    {oauthLoading === 'google' ? 'Connecting to Google...' : 'Google'}
+                  </span>
+                </button>
+
+                {/* GitHub Button */}
+                <button
+                  type="button"
+                  onClick={() => handleOAuthClick('github')}
+                  disabled={busy || oauthLoading !== null}
+                  className="w-full flex items-center justify-center gap-3 rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.07] hover:bg-white/[0.12] hover:border-white/35 text-white font-semibold py-3 px-4 shadow-[0_4px_16px_rgba(0,0,0,0.3),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-xl transition hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+                >
+                  <svg className="h-5 w-5 flex-shrink-0 fill-current text-white" viewBox="0 0 24 24">
+                    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                  </svg>
+                  <span className="text-sm font-semibold">
+                    {oauthLoading === 'github' ? 'Connecting to GitHub...' : 'GitHub'}
+                  </span>
+                </button>
+
+                {/* Microsoft Button */}
+                <button
+                  type="button"
+                  onClick={() => handleOAuthClick('microsoft')}
+                  disabled={busy || oauthLoading !== null}
+                  className="w-full flex items-center justify-center gap-3 rounded-2xl border border-white/20 border-t-white/30 bg-white/[0.07] hover:bg-white/[0.12] hover:border-white/35 text-white font-semibold py-3 px-4 shadow-[0_4px_16px_rgba(0,0,0,0.3),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-xl transition hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+                >
+                  <svg className="h-5 w-5 flex-shrink-0" viewBox="0 0 24 24">
+                    <rect x="2" y="2" width="9.5" height="9.5" fill="#F25022" />
+                    <rect x="12.5" y="2" width="9.5" height="9.5" fill="#7FBA00" />
+                    <rect x="2" y="12.5" width="9.5" height="9.5" fill="#00A4EF" />
+                    <rect x="12.5" y="12.5" width="9.5" height="9.5" fill="#FFB900" />
+                  </svg>
+                  <span className="text-sm font-semibold">
+                    {oauthLoading === 'microsoft' ? 'Connecting to Microsoft...' : 'Microsoft'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Note */}
+              <p className="mt-2.5 text-[11px] text-slate-400 leading-tight px-1">
+                <strong className="text-slate-300">Note:</strong> GitHub requires a public verified email address. Update GitHub privacy settings before continuing.
+              </p>
+
+              {/* Dev Simulation Notice */}
+              {devPromptProvider && (
+                <div className="mt-3 rounded-2xl border border-teal-500/30 bg-teal-500/10 p-3.5 text-xs text-teal-200 backdrop-blur-md shadow-inner">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-bold flex items-center gap-1.5">
+                      <span>⚡</span> {devPromptProvider.toUpperCase()} OAuth Ready
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDevPromptProvider(null)}
+                      className="text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-300 mb-2.5 leading-relaxed">
+                    Live client keys for {devPromptProvider} are not configured in <code className="bg-black/30 px-1 py-0.5 rounded font-mono text-[10px]">.env</code>. You can test immediately with Dev Simulation or enter your live keys.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDevLoginConfirm}
+                      disabled={busy}
+                      className="flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 py-2 text-xs font-bold text-slate-950 shadow-sm hover:brightness-110 transition cursor-pointer"
+                    >
+                      {busy ? 'Signing In...' : `Sign in with Simulated ${devPromptProvider.toUpperCase()}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDevPromptProvider(null)}
+                      className="rounded-xl border border-white/15 px-3 py-2 text-xs text-slate-300 hover:bg-white/[0.08] transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Divider */}
+              <div className="relative my-5 flex items-center justify-center">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-white/10" />
+                </div>
+                <div className="relative bg-[#0d1424] px-3 text-[11px] font-medium text-slate-400 uppercase tracking-wider backdrop-blur-md rounded-full border border-white/10">
+                  Or with email and password
+                </div>
+              </div>
+
+              <form className="space-y-4" onSubmit={handleSubmit}>
               <div>
                 <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                   Email Address
@@ -288,7 +478,8 @@ export function GlassAuthModal({
                 {busy ? 'Authenticating...' : mode === 'login' ? 'Enter Shadow Vault →' : 'Generate Keypair & Register →'}
               </button>
             </form>
-          )}
+          </div>
+        )}
 
           <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4 text-[11px] text-slate-300/70 font-medium">
             <span>🔒 Web Crypto SubtleCrypto API</span>
@@ -300,10 +491,24 @@ export function GlassAuthModal({
   )
 }
 
-export default function LandingPage({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
-  const [authModalOpen, setAuthModalOpen] = useState(false)
+export default function LandingPage({
+  onAuthenticated,
+  initialError,
+  initialOAuthConfigNeeded,
+}: {
+  onAuthenticated: (user: User) => void
+  initialError?: string | null
+  initialOAuthConfigNeeded?: string | null
+}) {
+  const [authModalOpen, setAuthModalOpen] = useState(Boolean(initialError || initialOAuthConfigNeeded))
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [backendHealth, setBackendHealth] = useState<string>('Live')
+
+  useEffect(() => {
+    if (initialError || initialOAuthConfigNeeded) {
+      setAuthModalOpen(true)
+    }
+  }, [initialError, initialOAuthConfigNeeded])
 
   useEffect(() => {
     fetchHealth()
@@ -785,6 +990,8 @@ export default function LandingPage({ onAuthenticated }: { onAuthenticated: (use
       <GlassAuthModal
         isOpen={authModalOpen}
         initialMode={authMode}
+        initialError={initialError}
+        initialOAuthConfigNeeded={initialOAuthConfigNeeded}
         onClose={() => setAuthModalOpen(false)}
         onAuthenticated={onAuthenticated}
       />

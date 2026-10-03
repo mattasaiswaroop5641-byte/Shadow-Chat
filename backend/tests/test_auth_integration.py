@@ -289,3 +289,36 @@ def test_verified_user_guard() -> None:
     )
     result = asyncio.run(verified_user(verified))
     assert result.email_verified is True
+
+
+def test_oauth_providers_endpoint() -> None:
+    from app.routes.auth import get_oauth_providers
+    res = asyncio.run(get_oauth_providers())
+    assert "providers" in res
+    assert "google" in res["providers"]
+    assert "github" in res["providers"]
+    assert "microsoft" in res["providers"]
+
+
+def test_dev_oauth_login() -> None:
+    from app.routes.auth import DevOAuthLoginRequest, dev_oauth_login
+    db = MockAuthDatabase()
+    req = make_request()
+    
+    # Test dev login for Google
+    tokens = asyncio.run(
+        dev_oauth_login(
+            DevOAuthLoginRequest(provider="google", email="test.google@shadowchat.net", username="google_dev_user"),
+            req,
+            db,
+        )
+    )
+    assert tokens.access_token is not None
+    assert tokens.refresh_token is not None
+    
+    # Verify user created in DB is marked verified
+    user = asyncio.run(db.users.find_one({"email": "test.google@shadowchat.net"}))
+    assert user is not None
+    assert user["email_verified"] is True
+    assert user["oauth_provider"] == "google"
+

@@ -55,6 +55,14 @@ class Settings:
     brevo_api_key: str = os.getenv("BREVO_API_KEY", "")
     brevo_sender_email: str = os.getenv("BREVO_SENDER_EMAIL", "")
     brevo_sender_name: str = os.getenv("BREVO_SENDER_NAME", "Shadow Chat")
+    google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    google_client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    github_client_id: str = os.getenv("GITHUB_CLIENT_ID", "")
+    github_client_secret: str = os.getenv("GITHUB_CLIENT_SECRET", "")
+    microsoft_client_id: str = os.getenv("MICROSOFT_CLIENT_ID", "")
+    microsoft_client_secret: str = os.getenv("MICROSOFT_CLIENT_SECRET", "")
+    backend_public_url: str = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000")
+    frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
     def validate(self) -> None:
         if self.app_env == "production" and (

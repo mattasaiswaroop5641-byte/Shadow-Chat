@@ -8,6 +8,7 @@ from uuid import uuid4
 import jwt
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -19,6 +20,13 @@ from app.core.config import get_settings
 from app.core.database import get_database
 from app.core.audit import record_security_event
 from app.core.mail import MailDeliveryError, send_transactional_email
+from app.core.oauth import (
+    build_authorization_url,
+    decode_state,
+    encode_state,
+    exchange_oauth_code,
+    is_provider_configured,
+)
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -405,3 +413,190 @@ async def reset_password(
     )
     await database.sessions.delete_many({"user_id": reset["user_id"]})
     return {"status": "password_reset"}
+
+
+def sanitize_username(raw: str) -> str:
+    cleaned = "".join(c if c.isalnum() or c == "_" else "_" for c in raw.strip().lower())
+    cleaned = "_".join(filter(None, cleaned.split("_")))
+    if len(cleaned) < 3:
+        cleaned = f"{cleaned}_operative"
+    return cleaned[:28]
+
+
+@router.get("/oauth/providers")
+async def get_oauth_providers() -> dict[str, Any]:
+    return {
+        "providers": {
+            "google": is_provider_configured("google"),
+            "github": is_provider_configured("github"),
+            "microsoft": is_provider_configured("microsoft"),
+        }
+    }
+
+
+@router.get("/{provider}/login")
+async def oauth_login(
+    provider: str,
+    request: Request,
+    return_to: str | None = None,
+) -> RedirectResponse:
+    prov = provider.lower()
+    if prov not in {"google", "github", "microsoft"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported OAuth provider: {provider}")
+
+    target_return = return_to or settings.frontend_url
+    if not is_provider_configured(prov):
+        if settings.app_env == "development":
+            return RedirectResponse(
+                url=f"{target_return.rstrip('/')}/?oauth_config_needed={prov}",
+                status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"{prov.capitalize()} OAuth is not configured on this server.",
+        )
+
+    base_url = settings.backend_public_url or str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url.rstrip('/')}/auth/{prov}/callback"
+    state = encode_state({
+        "return_to": target_return,
+        "nonce": secrets.token_hex(16),
+        "provider": prov,
+    })
+    auth_url = build_authorization_url(prov, redirect_uri, state)
+    return RedirectResponse(url=auth_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@router.get("/{provider}/callback")
+async def oauth_callback(
+    provider: str,
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+    database: AsyncIOMotorDatabase = Depends(get_database),
+) -> RedirectResponse:
+    prov = provider.lower()
+    if prov not in {"google", "github", "microsoft"}:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    state_data = decode_state(state) if state else {}
+    return_to = state_data.get("return_to") or settings.frontend_url
+
+    if error:
+        err_msg = error_description or error or "Authentication canceled or denied"
+        return RedirectResponse(
+            url=f"{return_to.rstrip('/')}/?auth_error={err_msg}",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        )
+
+    if not code:
+        return RedirectResponse(
+            url=f"{return_to.rstrip('/')}/?auth_error=No+authorization+code+received",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        )
+
+    base_url = settings.backend_public_url or str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url.rstrip('/')}/auth/{prov}/callback"
+
+    try:
+        user_info = await exchange_oauth_code(prov, code, redirect_uri)
+    except Exception as exc:
+        logger.exception("OAuth exchange failed for %s", prov)
+        return RedirectResponse(
+            url=f"{return_to.rstrip('/')}/?auth_error={str(exc)}",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        )
+
+    email = user_info.email.lower()
+    existing_user = await database.users.find_one({"email": email})
+
+    if existing_user is not None:
+        user_id = str(existing_user["_id"])
+        update_fields: dict[str, Any] = {"email_verified": True}
+        if not existing_user.get("avatar_url") and user_info.avatar_url:
+            update_fields["avatar_url"] = user_info.avatar_url
+        await database.users.update_one({"_id": existing_user["_id"]}, {"$set": update_fields})
+    else:
+        raw_name = user_info.username or user_info.name or email.split("@")[0]
+        base_user = sanitize_username(raw_name)
+        username = base_user
+        counter = 1
+        while await database.users.find_one({"username_lower": username.lower()}):
+            username = f"{base_user[:26]}_{counter}"
+            counter += 1
+
+        new_user = {
+            "email": email,
+            "username": username,
+            "username_lower": username.lower(),
+            "password_hash": hash_password(secrets.token_urlsafe(32)),
+            "created_at": datetime.now(timezone.utc),
+            "email_verified": True,
+            "avatar_url": user_info.avatar_url,
+            "oauth_provider": prov,
+            "oauth_id": user_info.provider_id,
+            "registration_ip": request.client.host if request.client else None,
+        }
+        res = await database.users.insert_one(new_user)
+        user_id = str(res.inserted_id)
+
+    tokens = await issue_tokens(user_id, database)
+    return RedirectResponse(
+        url=f"{return_to.rstrip('/')}/?access_token={tokens.access_token}&refresh_token={tokens.refresh_token}&provider={prov}",
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+    )
+
+
+class DevOAuthLoginRequest(BaseModel):
+    provider: str
+    email: EmailStr | None = None
+    username: str | None = None
+
+
+@router.post("/oauth/dev-login", response_model=TokenReply)
+async def dev_oauth_login(
+    payload: DevOAuthLoginRequest,
+    request: Request,
+    database: AsyncIOMotorDatabase = Depends(get_database),
+) -> TokenReply:
+    if settings.app_env != "development":
+        raise HTTPException(status_code=403, detail="Dev login is only allowed in development")
+
+    prov = payload.provider.lower()
+    if prov not in {"google", "github", "microsoft"}:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    email = str(payload.email or f"{prov}_operative@shadowchat.net").lower()
+    existing_user = await database.users.find_one({"email": email})
+
+    if existing_user is not None:
+        user_id = str(existing_user["_id"])
+        await database.users.update_one({"_id": existing_user["_id"]}, {"$set": {"email_verified": True}})
+    else:
+        desired_username = payload.username or f"agent_{prov}"
+        base_user = sanitize_username(desired_username)
+        username = base_user
+        counter = 1
+        while await database.users.find_one({"username_lower": username.lower()}):
+            username = f"{base_user[:26]}_{counter}"
+            counter += 1
+
+        new_user = {
+            "email": email,
+            "username": username,
+            "username_lower": username.lower(),
+            "password_hash": hash_password(secrets.token_urlsafe(32)),
+            "created_at": datetime.now(timezone.utc),
+            "email_verified": True,
+            "avatar_url": None,
+            "oauth_provider": prov,
+            "oauth_id": f"dev_{prov}_{secrets.token_hex(4)}",
+            "registration_ip": request.client.host if request.client else None,
+        }
+        res = await database.users.insert_one(new_user)
+        user_id = str(res.inserted_id)
+
+    return await issue_tokens(user_id, database)
+

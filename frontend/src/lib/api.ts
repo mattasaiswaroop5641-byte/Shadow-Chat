@@ -195,6 +195,60 @@ export async function logout(): Promise<void> {
   }
 }
 
+export function storeAuthTokens(tokens: TokenReply): void {
+  storeTokens(tokens)
+}
+
+export function getOAuthLoginUrl(provider: 'google' | 'github' | 'microsoft'): string {
+  const returnTo = window.location.origin
+  return `${apiBaseUrl}/auth/${provider}/login?return_to=${encodeURIComponent(returnTo)}`
+}
+
+export async function fetchOAuthProviders(): Promise<{ google: boolean; github: boolean; microsoft: boolean }> {
+  try {
+    const res = await request<{ providers: { google: boolean; github: boolean; microsoft: boolean } }>('/auth/oauth/providers', {}, false)
+    return res.providers
+  } catch {
+    return { google: false, github: false, microsoft: false }
+  }
+}
+
+export async function devOAuthLogin(provider: 'google' | 'github' | 'microsoft'): Promise<User> {
+  const tokens = await request<TokenReply>('/auth/oauth/dev-login', {
+    method: 'POST',
+    body: JSON.stringify({ provider }),
+  }, false)
+  storeTokens(tokens)
+  return request<User>('/auth/me', {}, false)
+}
+
+export function parseOAuthUrlParams(): {
+  accessToken?: string
+  refreshToken?: string
+  provider?: string
+  authError?: string
+  oauthConfigNeeded?: 'google' | 'github' | 'microsoft'
+} {
+  if (typeof window === 'undefined') return {}
+  const params = new URLSearchParams(window.location.search)
+  const accessToken = params.get('access_token') || undefined
+  const refreshToken = params.get('refresh_token') || undefined
+  const provider = params.get('provider') || undefined
+  const authError = params.get('auth_error') || undefined
+  const oauthConfigNeeded = (params.get('oauth_config_needed') as 'google' | 'github' | 'microsoft') || undefined
+
+  if (accessToken && refreshToken) {
+    storeTokens({ access_token: accessToken, refresh_token: refreshToken, token_type: 'bearer' })
+    const cleanUrl = window.location.pathname + window.location.hash
+    window.history.replaceState({}, document.title, cleanUrl)
+  } else if (authError || oauthConfigNeeded) {
+    const cleanUrl = window.location.pathname + window.location.hash
+    window.history.replaceState({}, document.title, cleanUrl)
+  }
+
+  return { accessToken, refreshToken, provider, authError, oauthConfigNeeded }
+}
+
 export function searchUsers(query: string): Promise<UserSummary[]> {
   const params = new URLSearchParams({ q: query })
   return request<UserSummary[]>(`/users/search?${params.toString()}`)
