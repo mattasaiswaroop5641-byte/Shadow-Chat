@@ -1231,22 +1231,8 @@ export default function App() {
     setMentionQuery(null)
   }
 
-  if (authLoading) {
-    return <main className="flex min-h-screen items-center justify-center bg-[#0b1020] text-sm text-slate-400">Restoring session...</main>
-  }
-
-  if (!user) {
-    return (
-      <LandingPage
-        onAuthenticated={setUser}
-        initialError={oauthError}
-        initialOAuthConfigNeeded={oauthConfigNeeded}
-      />
-    )
-  }
-
   const directPartnerMember = selectedConversation?.kind === 'direct'
-    ? members.find((m) => m.user_id !== user.id)
+    ? members.find((m) => m.user_id !== user?.id)
     : null
   const directPartner = directPartnerMember?.username || selectedConversation?.recipient_username || null
   const directPartnerAvatarUrl = directPartnerMember?.avatar_url ?? selectedConversation?.recipient_avatar_url ?? null
@@ -1338,6 +1324,20 @@ export default function App() {
 
   const totalUnreadDirect = directConversations.reduce((sum, c) => sum + (unreadCounts[c.id] || 0), 0)
   const totalUnreadGroup = groupConversations.reduce((sum, c) => sum + (unreadCounts[c.id] || 0), 0)
+
+  if (authLoading) {
+    return <main className="flex min-h-screen items-center justify-center bg-[#0b1020] text-sm text-slate-400">Restoring session...</main>
+  }
+
+  if (!user) {
+    return (
+      <LandingPage
+        onAuthenticated={setUser}
+        initialError={oauthError}
+        initialOAuthConfigNeeded={oauthConfigNeeded}
+      />
+    )
+  }
 
   return (
     <div className="relative min-h-screen bg-[#070b14] text-slate-100 overflow-hidden">
